@@ -74,7 +74,7 @@ Each workspace is its own navigation shell. Switching replaces the whole shell; 
 
 | Workspace | Bottom navigation | Accent |
 |---|---|---|
-| Player | Home · My Paddle · Tournaments · Matches · Profile | Cyan / blue |
+| Player | Home · Matches · Explore · My Paddle · Profile (see PLAYER-APP.md) | Ink / volt (SkorX player design system) |
 | Organizer | Dashboard · Tournaments · Matches · Schedule · More | Lime / blue |
 | Referee | Current · Upcoming · Completed · Profile | Lime / blue |
 
@@ -207,7 +207,7 @@ Grouped by the step that needs it:
 | 3 | Player: home, create match, scoring, history, stats, profile | |
 | 4 | Player tournaments: discover, detail, registration, payment, my tournaments, live | |
 | 5 | Referee workspace and offline console | |
-| 6 | Organizer workspace | |
+| 6 | Organizer workspace | **Mobile built against a sample server** (docs/ORGANIZER-TMS.md): tournaments, wizard, registrations, check-in, draws, schedule, courts, live control room, offline-safe scoring console, results, announcements, finance, analytics, roles, activity log. **Remaining:** the NestJS endpoints in ORGANIZER-TMS.md §6, the web PMS, the public scoreboard and streaming. |
 | 7 | Realtime and push | |
 | 8 | Finance, streaming, add-ons | |
 | 9 | Enable further sports | |

@@ -15,11 +15,12 @@ const apiBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://
 /// refreshes it once when it has expired.
 class ApiClient {
   ApiClient({
-    required this._tokens,
+    required TokenStore tokens,
     String baseUrl = apiBaseUrl,
     HttpClientAdapter? adapter,
     this.onSessionEnded,
-  })  : _dio = Dio(_options(baseUrl)),
+  })  : _tokens = tokens,
+        _dio = Dio(_options(baseUrl)),
         _refreshDio = Dio(_options(baseUrl)) {
     if (adapter != null) {
       _dio.httpClientAdapter = adapter;

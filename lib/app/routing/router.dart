@@ -4,19 +4,34 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/account/account_page.dart';
 import '../../features/auth/auth_controller.dart';
 import '../../features/auth/ui/profile_setup_screen.dart';
 import '../../features/auth/ui/sign_in_screen.dart';
+import '../../features/auth/ui/verify_screen.dart';
 import '../../features/casual_match/ui/create_match_screen.dart';
 import '../../features/casual_match/ui/scoring_screen.dart';
-import '../../features/organizer/organizer_pages.dart';
+import '../../features/courts/ui/booking_pages.dart';
+import '../../features/explore/explore_page.dart';
+import '../../features/matches/ui/match_detail_page.dart';
+import '../../features/matches/ui/matches_page.dart';
+import '../../features/notifications/notifications_page.dart';
+import '../../features/onboarding/onboarding_controller.dart';
+import '../../features/onboarding/ui/arrival_screens.dart';
+import '../../features/onboarding/ui/guest_explore_page.dart';
+import '../../features/onboarding/ui/onboarding_kit.dart';
+import '../../features/onboarding/ui/welcome_flow.dart';
+import '../../features/organizer/organizer_routes.dart';
+import '../../features/paddle/my_play_pages.dart';
+import '../../features/paddle/paddle_pages.dart';
 import '../../features/player/home/player_home_page.dart';
 import '../../features/player/player_pages.dart';
-import '../../features/referee/referee_pages.dart';
+import '../../features/player/ui/player_stats_page.dart';
+import '../../features/profile/profile_pages.dart';
+import '../../features/tournaments/ui/tournament_hub_page.dart';
 import '../../features/shell/workspace_shell.dart';
 import '../../features/workspace/workspace_controller.dart';
 import '../../shared/widgets.dart';
+import '../theme/tokens.dart';
 import 'redirect.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -24,6 +39,9 @@ final routerProvider = Provider<GoRouter>((ref) {
   // every recorded location.
   final refresh = ValueNotifier<int>(0);
   ref.listen(authControllerProvider, (_, _) => refresh.value++);
+  ref.listen(onboardingControllerProvider, (previous, next) {
+    if (previous?.ready != next.ready) refresh.value++;
+  });
   ref.listen(workspaceControllerProvider, (previous, next) {
     if (previous?.ready != next.ready || previous?.available != next.available) refresh.value++;
   });
@@ -33,58 +51,124 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: refresh,
     redirect: (context, state) => redirectFor(
       auth: ref.read(authControllerProvider),
+      onboarding: ref.read(onboardingControllerProvider),
       workspaces: ref.read(workspaceControllerProvider),
       location: state.uri.path,
     ),
     routes: [
       GoRoute(path: Routes.splash, builder: (_, _) => const SplashScreen()),
-      GoRoute(path: Routes.login, builder: (_, _) => const SignInScreen()),
-      GoRoute(path: Routes.profileSetup, builder: (_, _) => const ProfileSetupScreen()),
-      // Full-screen, outside the tab bar, but still in the Player workspace.
+      GoRoute(path: Routes.welcome, pageBuilder: (_, state) => onboardPage(state, const WelcomeFlow())),
+      GoRoute(path: Routes.guest, pageBuilder: (_, state) => onboardPage(state, const GuestExplorePage())),
+      GoRoute(
+        path: Routes.login,
+        pageBuilder: (_, state) => onboardPage(state, const SignInScreen()),
+        routes: [
+          GoRoute(
+            path: 'verify',
+            // Opened without a number (an old link): start from the number.
+            redirect: (_, state) =>
+                RegExp(r'^\d{10}$').hasMatch(state.uri.queryParameters['mobile'] ?? '') ? null : Routes.login,
+            pageBuilder: (_, state) => onboardPage(
+              state,
+              VerifyScreen(
+                mobile: state.uri.queryParameters['mobile']!,
+                resendAfter: Duration(seconds: int.tryParse(state.uri.queryParameters['resend'] ?? '') ?? 30),
+              ),
+            ),
+          ),
+        ],
+      ),
+      GoRoute(path: Routes.profileSetup, pageBuilder: (_, state) => onboardPage(state, const ProfileSetupScreen())),
+      GoRoute(path: Routes.profileComplete, pageBuilder: (_, state) => onboardPage(state, const ProfileCompleteScreen())),
+      GoRoute(path: Routes.welcomeBack, pageBuilder: (_, state) => onboardPage(state, const WelcomeBackScreen())),
+      // Full-screen, outside the tab bar, but still in the Player workspace
+      // (docs/PLAYER-APP.md §2.3).
       GoRoute(
         path: '/player/match/new',
         builder: (_, state) => CreateMatchScreen(initialCategoryId: state.uri.queryParameters['type']),
       ),
       GoRoute(path: '/player/match', builder: (_, _) => const ScoringScreen()),
-      _shell(playerDestinations, [
-        _tab('/player/home', const PlayerHomePage()),
-        _tab('/player/paddle', const MyPaddlePage()),
-        _tab('/player/tournaments', const PlayerTournamentsPage()),
-        _tab('/player/matches', const PlayerMatchesPage()),
-        _tab('/player/profile', const AccountPage()),
-      ], fullBleedTabs: const {0}),
-      // Organizer tabs live under /org/:orgId, and go_router's tab branches
-      // cannot start on a parameterized path, so this shell works out the
-      // selected tab from the location instead.
-      ShellRoute(
-        builder: (context, state, child) {
-          final orgId = state.pathParameters['orgId']!;
-          final tab = state.uri.pathSegments.length > 2 ? state.uri.pathSegments[2] : organizerTabs.first;
-          return WorkspaceShell(
-            destinations: organizerDestinations,
-            currentIndex: organizerTabs.indexOf(tab).clamp(0, organizerTabs.length - 1),
-            onSelect: (index) => GoRouter.of(context).go('/org/$orgId/${organizerTabs[index]}'),
-            child: child,
-          );
-        },
+      GoRoute(
+        path: '/player/matches/:id',
+        builder: (_, state) => MatchDetailPage(matchId: state.pathParameters['id']!),
+      ),
+      GoRoute(path: '/player/tournaments/mine', builder: (_, _) => const MyTournamentsPlayedPage()),
+      // Any player's full stats, and two players head-to-head.
+      GoRoute(
+        path: '/player/players/:id',
+        builder: (_, state) => PlayerStatsPage(playerId: state.pathParameters['id']!),
         routes: [
-          _tab('/org/:orgId/dashboard', const OrganizerDashboardPage()),
-          _tab('/org/:orgId/tournaments', const OrganizerTournamentsPage()),
-          _tab('/org/:orgId/matches', const OrganizerMatchesPage()),
-          _tab('/org/:orgId/schedule', const OrganizerSchedulePage()),
           GoRoute(
-            path: '/org/:orgId/more',
-            pageBuilder: (_, state) =>
-                NoTransitionPage(child: OrganizerMorePage(organizationId: state.pathParameters['orgId']!)),
+            path: 'vs/:other',
+            builder: (_, state) => HeadToHeadPage(a: state.pathParameters['id']!, b: state.pathParameters['other']!),
           ),
         ],
       ),
-      _shell(refereeDestinations, [
-        _tab('/referee/current', const RefereeListPage.current()),
-        _tab('/referee/upcoming', const RefereeListPage.upcoming()),
-        _tab('/referee/completed', const RefereeListPage.completed()),
-        _tab('/referee/profile', const AccountPage()),
-      ]),
+      // My Paddle: only the signed-in player's own matches.
+      GoRoute(
+        path: '/player/paddle/matches',
+        builder: (_, state) => MyMatchesPage(category: state.uri.queryParameters['category']),
+      ),
+      GoRoute(
+        path: '/player/paddle/tournament/:id',
+        builder: (_, state) => MyTournamentMatchesPage(tournamentId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/player/tournament/:id',
+        builder: (_, state) =>
+            TournamentHubPage(tournamentId: state.pathParameters['id']!, view: state.uri.queryParameters['view']),
+      ),
+      GoRoute(
+        path: '/player/tournament/:id/registered',
+        builder: (_, state) => RegisteredPage(tournamentId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/player/venue/:id',
+        builder: (_, state) => VenuePage(
+          venueId: state.pathParameters['id']!,
+          initialDate: DateTime.tryParse(state.uri.queryParameters['date'] ?? ''),
+          initialHour: int.tryParse(state.uri.queryParameters['hour'] ?? ''),
+        ),
+      ),
+      GoRoute(
+        path: '/player/venue/:id/confirm',
+        builder: (_, state) => ConfirmBookingPage.fromQuery(state.pathParameters['id']!, state.uri.queryParameters),
+      ),
+      GoRoute(path: '/player/bookings', builder: (_, _) => const MyBookingsPage()),
+      GoRoute(path: '/player/rankings', builder: (_, _) => const RankingsPage()),
+      GoRoute(path: '/player/achievements', builder: (_, _) => const AchievementsPage()),
+      GoRoute(path: '/player/notifications', builder: (_, _) => const NotificationsPage()),
+      GoRoute(path: '/player/settings', builder: (_, _) => const SettingsPage()),
+      GoRoute(path: '/player/edit-profile', builder: (_, _) => const EditProfilePage()),
+      // Locations saved by earlier versions of the app.
+      GoRoute(path: '/player/tournaments', redirect: (_, _) => '/player/explore?view=tournaments'),
+      GoRoute(path: '/player/courts', redirect: (_, _) => '/player/explore?view=courts'),
+      GoRoute(path: '/player/leaderboard', redirect: (_, _) => '/player/rankings'),
+      GoRoute(path: '/player/venue/:id/review', redirect: (_, state) => state.uri.toString().replaceFirst('/review', '/confirm')),
+      _shell(
+        playerDestinations,
+        [
+          _tab('/player/home', const PlayerHomePage()),
+          GoRoute(
+            path: '/player/matches',
+            pageBuilder: (_, state) => NoTransitionPage(child: MatchesPage(view: state.uri.queryParameters['view'])),
+          ),
+          GoRoute(
+            path: '/player/explore',
+            pageBuilder: (_, state) => NoTransitionPage(child: ExplorePage(view: state.uri.queryParameters['view'])),
+          ),
+          GoRoute(
+            path: '/player/paddle',
+            // Old `?tab=matches` links go to my matches.
+            redirect: (_, state) => state.uri.queryParameters['tab'] == 'matches' ? '/player/paddle/matches' : null,
+            pageBuilder: (_, _) => const NoTransitionPage(child: MyPaddlePage()),
+          ),
+          _tab('/player/profile', const ProfilePage()),
+        ],
+        fullBleedTabs: const {0, 1, 2, 3, 4},
+        overlay: const ResumeMatchBar(),
+      ),
+      ...organizerRoutes(),
     ],
   );
 
@@ -104,34 +188,46 @@ final routerProvider = Provider<GoRouter>((ref) {
   return router;
 });
 
-/// Path segment of each organizer tab, in navigation order.
-const organizerTabs = ['dashboard', 'tournaments', 'matches', 'schedule', 'more'];
-
 GoRoute _tab(String path, Widget page) => GoRoute(path: path, pageBuilder: (_, _) => NoTransitionPage(child: page));
 
 /// One workspace's navigation shell. Each tab keeps its own stack.
-StatefulShellRoute _shell(List<ShellDestination> destinations, List<GoRoute> tabs, {Set<int> fullBleedTabs = const {}}) =>
+StatefulShellRoute _shell(
+  List<ShellDestination> destinations,
+  List<GoRoute> tabs, {
+  Set<int> fullBleedTabs = const {},
+  Widget? overlay,
+}) =>
     StatefulShellRoute.indexedStack(
       builder: (_, _, navigationShell) => WorkspaceShell.stateful(
         navigationShell: navigationShell,
         destinations: destinations,
         fullBleedTabs: fullBleedTabs,
+        overlay: overlay,
       ),
-      branches: [for (final tab in tabs) StatefulShellBranch(routes: [tab])],
+      branches: [
+        for (final tab in tabs) StatefulShellBranch(routes: [tab])
+      ],
     );
 
+/// Shown for the moment the session is restored. Matches the native splash
+/// (logo on the dark SkorX background) so the launch reads as one piece.
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
 
   @override
-  Widget build(BuildContext context) => const Scaffold(
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: SkorxColors.dark.background,
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SkorxLogo(height: 72),
-              SizedBox(height: 24),
-              SizedBox.square(dimension: 24, child: CircularProgressIndicator(strokeWidth: 2.5)),
+              // As large as the intro draws it, so the hand-over is seamless.
+              SkorxLogo(
+                height: (MediaQuery.sizeOf(context).width * 0.78).clamp(0, 380) / SkorxLogo.aspectRatio,
+                glow: true,
+              ),
+              const SizedBox(height: 36),
+              const BallLoader(color: Color(0xFFCFE524), width: 44, label: 'Opening SkorX'),
             ],
           ),
         ),

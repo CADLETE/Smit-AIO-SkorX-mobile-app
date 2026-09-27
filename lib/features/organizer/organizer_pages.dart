@@ -1,210 +1,192 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../app/theme/tokens.dart';
-import '../../shared/widgets.dart';
+import '../../app/theme/typography.dart';
+import '../../shared/format.dart';
+import '../../shared/ui/components.dart';
 import '../shell/workspace_shell.dart';
 import '../workspace/workspace.dart';
 import '../workspace/workspace_controller.dart';
+import '../workspace/workspace_switcher.dart';
+import 'data/organizer_repository.dart';
+import 'data/tms_models.dart';
+import 'ui/org_widgets.dart';
 
+/// Tournament-day navigation (docs/ORGANIZER-TMS.md §2): what matters
+/// standing beside a court, one thumb away. One tournament runs at a time,
+/// so the full list lives on Home and Profile rather than taking a tab.
 const organizerDestinations = [
-  ShellDestination('Dashboard', Icons.space_dashboard_outlined, Icons.space_dashboard_rounded),
-  ShellDestination('Tournaments', Icons.emoji_events_outlined, Icons.emoji_events_rounded),
-  ShellDestination('Matches', Icons.scoreboard_outlined, Icons.scoreboard_rounded),
-  ShellDestination('Schedule', Icons.calendar_month_outlined, Icons.calendar_month_rounded),
-  ShellDestination('More', Icons.grid_view_outlined, Icons.grid_view_rounded),
+  ShellDestination('Home', Icons.space_dashboard_outlined, Icons.space_dashboard_rounded),
+  ShellDestination('Live', Icons.sensors_outlined, Icons.sensors_rounded),
+  ShellDestination('Check-in', Icons.how_to_reg_outlined, Icons.how_to_reg_rounded),
+  ShellDestination('Players', Icons.groups_outlined, Icons.groups_rounded),
+  ShellDestination('Profile', Icons.storefront_outlined, Icons.storefront_rounded),
 ];
 
 /// The organizer workspace open for [organizationId], or null when the user
 /// is not a member (the router already sends them home in that case).
-OrganizerWorkspace? organizerWorkspace(WidgetRef ref, String organizationId) => ref
-    .watch(workspaceControllerProvider)
-    .available
-    .whereType<OrganizerWorkspace>()
-    .where((w) => w.organizationId == organizationId)
-    .firstOrNull;
+OrganizerWorkspace? organizerWorkspace(WidgetRef ref, String organizationId) => orgWorkspace(ref, organizationId);
 
-/// Answers: what needs my attention, what is live, what is next.
-class OrganizerDashboardPage extends StatelessWidget {
-  const OrganizerDashboardPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return PageBody(
-      children: [
-        Text('Command center', style: Theme.of(context).textTheme.headlineMedium),
-        const SizedBox(height: SkorxSpace.lg),
-        const Row(
-          children: [
-            Expanded(child: _Kpi(label: 'Live', value: '-')),
-            SizedBox(width: SkorxSpace.md),
-            Expanded(child: _Kpi(label: 'Upcoming', value: '-')),
-          ],
-        ),
-        const SizedBox(height: SkorxSpace.md),
-        const Row(
-          children: [
-            Expanded(child: _Kpi(label: 'Check-in', value: '-')),
-            SizedBox(width: SkorxSpace.md),
-            Expanded(child: _Kpi(label: 'Courts active', value: '-')),
-          ],
-        ),
-        const SectionHeader('Needs attention'),
-        const EmptyState(
-          icon: Icons.task_alt_rounded,
-          title: 'All clear',
-          message: 'Late check-ins, unassigned referees and delayed matches show here.',
-        ),
-      ],
-    );
-  }
-}
-
-class _Kpi extends StatelessWidget {
-  const _Kpi({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.skorx.colors;
-    return Semantics(
-      label: '$label: $value',
-      excludeSemantics: true,
-      child: Container(
-        padding: const EdgeInsets.all(SkorxSpace.lg),
-        decoration: BoxDecoration(
-          color: colors.surface,
-          borderRadius: BorderRadius.circular(SkorxRadius.lg),
-          border: Border.all(color: colors.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label.toUpperCase(), style: TextStyle(fontSize: 11, letterSpacing: 1.2, color: colors.textMuted)),
-            const SizedBox(height: SkorxSpace.xs),
-            Text(
-              value,
-              style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, fontFeatures: [FontFeature.tabularFigures()]),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class OrganizerTournamentsPage extends StatelessWidget {
-  const OrganizerTournamentsPage({super.key});
-
-  @override
-  Widget build(BuildContext context) => const PageBody(
-        children: [
-          SectionHeader('Tournaments'),
-          EmptyState(
-            icon: Icons.emoji_events_rounded,
-            title: 'No tournaments yet',
-            message: 'Tournaments created here or on the web TMS show here.',
-          ),
-        ],
-      );
-}
-
-class OrganizerMatchesPage extends StatelessWidget {
-  const OrganizerMatchesPage({super.key});
-
-  @override
-  Widget build(BuildContext context) => const PageBody(
-        children: [
-          SectionHeader('Matches'),
-          EmptyState(
-            icon: Icons.scoreboard_rounded,
-            title: 'No matches yet',
-            message: 'Live, upcoming and completed matches for the selected tournament show here.',
-          ),
-        ],
-      );
-}
-
-class OrganizerSchedulePage extends StatelessWidget {
-  const OrganizerSchedulePage({super.key});
-
-  @override
-  Widget build(BuildContext context) => const PageBody(
-        children: [
-          SectionHeader('Schedule'),
-          EmptyState(
-            icon: Icons.calendar_month_rounded,
-            title: 'Nothing scheduled',
-            message: 'Pick a day, then a court, to see its timeline.',
-          ),
-        ],
-      );
-}
-
-/// A tool in "More". [capability] hides it from roles that cannot use it.
+/// A tool on the organiser Profile. [capability] hides it from roles that
+/// cannot use it.
 class OrganizerModule {
-  const OrganizerModule(this.label, this.icon, [this.capability]);
+  const OrganizerModule(this.label, this.icon, this.route, [this.capability, this.subtitle]);
 
   final String label;
   final IconData icon;
+
+  /// Under /org/:orgId.
+  final String route;
   final String? capability;
+  final String? subtitle;
 }
 
+// Tournament tools (check-in, draws, payments…) live in the top-right
+// Actions sheet; these are about the organisation as a whole.
 const organizerModules = [
-  OrganizerModule('Draws', Icons.account_tree_rounded, 'editTournament'),
-  OrganizerModule('Check-in', Icons.how_to_reg_rounded, 'manageCheckIn'),
-  OrganizerModule('Players', Icons.groups_rounded, 'managePlayers'),
-  OrganizerModule('Teams', Icons.diversity_3_rounded, 'managePlayers'),
-  OrganizerModule('Courts', Icons.grid_on_rounded, 'manageSchedule'),
-  OrganizerModule('Referees', Icons.sports_rounded, 'assignReferee'),
-  OrganizerModule('Payments', Icons.payments_rounded, 'managePayments'),
-  OrganizerModule('Streaming', Icons.videocam_rounded, 'manageStreaming'),
-  OrganizerModule('Announcements', Icons.campaign_rounded, 'editTournament'),
-  OrganizerModule('Add-ons', Icons.extension_rounded, 'managePayments'),
-  OrganizerModule('Analytics', Icons.query_stats_rounded, 'viewAnalytics'),
-  OrganizerModule('Settings', Icons.settings_rounded, 'manageSettings'),
+  OrganizerModule('Finance', Icons.account_balance_wallet_rounded, 'finance', 'managePayments', 'Revenue, expenses, sponsors'),
+  OrganizerModule('Analytics', Icons.query_stats_rounded, 'analytics', 'viewAnalytics', 'Attendance, completion, courts'),
+  OrganizerModule('Staff & roles', Icons.badge_rounded, 'staff', 'manageSettings'),
+  OrganizerModule('Activity log', Icons.history_rounded, 'audit', 'manageSettings', 'Every change, who made it'),
 ];
 
-class OrganizerMorePage extends ConsumerWidget {
-  const OrganizerMorePage({super.key, required this.organizationId});
+/// The Profile tab: the organisation, its record as an organiser, every
+/// tool that is not needed on court, and the way back to playing.
+class OrganizerProfileTab extends ConsumerWidget {
+  const OrganizerProfileTab({super.key, required this.organizationId});
 
   final String organizationId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final workspace = organizerWorkspace(ref, organizationId);
-    final modules = organizerModules.where((m) => m.capability == null || (workspace?.can(m.capability!) ?? false));
+    final orgId = organizationId;
+    final workspace = organizerWorkspace(ref, orgId);
+    final modules = organizerModules.where((m) => m.capability == null || (workspace?.can(m.capability!) ?? false)).toList();
+    final profile = ref.watch(orgProfileProvider(orgId));
     final colors = context.skorx.colors;
-    return PageBody(
-      children: [
-        const SectionHeader('Tools'),
-        if (modules.isEmpty)
-          const EmptyState(
-            icon: Icons.lock_outline_rounded,
-            title: 'No tools for your role',
-            message: 'Ask an owner of this organization if you need more access.',
-          ),
-        for (final module in modules)
-          Padding(
-            padding: const EdgeInsets.only(bottom: SkorxSpace.sm),
-            child: ListTile(
-              minTileHeight: 56,
-              tileColor: colors.surface,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(SkorxRadius.md),
-                side: BorderSide(color: colors.border),
+    final name = workspace?.title ?? '';
+
+    return RefreshIndicator(
+      onRefresh: () async {
+        ref.invalidate(orgProfileProvider(orgId));
+        await ref.read(orgProfileProvider(orgId).future);
+      },
+      child: ListView(
+        padding: EdgeInsets.fromLTRB(SkorxSpace.lg, SkorxSpace.sm, SkorxSpace.lg, tabBottomPadding(context) + 80),
+        children: [
+          Row(
+            children: [
+              PlayerAvatar(name: name, size: 64, ring: true),
+              const SizedBox(width: SkorxSpace.lg),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Semantics(
+                      header: true,
+                      child: Text(name.toUpperCase(), style: SkorxType.headline(28, color: colors.text)),
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: SkorxSpace.xs,
+                      runSpacing: SkorxSpace.xs,
+                      children: [
+                        if (workspace != null) SkxPill(workspace.subtitle, icon: Icons.badge_rounded),
+                        if (profile.value?.verified ?? false)
+                          const SkxPill('Verified', tone: SkxTone.brand, icon: Icons.verified_rounded),
+                      ],
+                    ),
+                    if (profile.value case final p?) ...[
+                      const SizedBox(height: 4),
+                      Text('${p.city} · since ${monthsShort[p.since.month - 1]} ${p.since.year}',
+                          style: TextStyle(color: colors.textMuted, fontSize: 13)),
+                    ],
+                  ],
+                ),
               ),
-              leading: Icon(module.icon, color: context.skorx.highlight),
-              title: Text(module.label, style: const TextStyle(fontWeight: FontWeight.w700)),
-              trailing: Icon(Icons.chevron_right_rounded, color: colors.textMuted),
-              // Each module arrives with the organizer step (build step 6).
-              onTap: null,
-            ),
+            ],
           ),
-      ],
+          const SkxSectionTitle('Organiser stats'),
+          AsyncBody<OrgProfile>(
+            value: profile,
+            onRetry: () => ref.invalidate(orgProfileProvider(orgId)),
+            loading: const SkeletonCard(height: 200),
+            data: (p) => MetricGrid(children: [
+              MetricCard(label: 'Tournaments', value: '${p.tournaments}', icon: Icons.emoji_events_rounded, caption: '${p.completed} completed'),
+              MetricCard(label: 'Players hosted', value: '${p.playersHosted}', icon: Icons.groups_rounded, caption: '${p.repeatPlayerPercent}% come back'),
+              MetricCard(label: 'Matches run', value: '${p.matchesManaged}', icon: Icons.scoreboard_rounded),
+              MetricCard(label: 'Rating', value: p.averageRating.toStringAsFixed(1), icon: Icons.star_rounded, caption: '${p.reviews.length} recent reviews'),
+            ]),
+          ),
+          const SizedBox(height: SkorxSpace.md),
+          SkxGroup(children: [
+            SkxRow(
+              key: const Key('publicProfile'),
+              icon: Icons.storefront_rounded,
+              iconColor: context.skorx.highlight,
+              label: 'Public profile',
+              subtitle: 'Venues, contact and reviews, as players see them',
+              onTap: () => context.push('/org/$orgId/profile/public'),
+            ),
+          ]),
+          SkxGroup(title: 'Organisation', children: [
+            SkxRow(
+              icon: Icons.emoji_events_rounded,
+              iconColor: context.skorx.highlight,
+              label: 'All tournaments',
+              subtitle: 'Active, drafts and past',
+              onTap: () => context.push('/org/$orgId/tournaments'),
+            ),
+            for (final m in modules)
+              SkxRow(
+                icon: m.icon,
+                iconColor: context.skorx.highlight,
+                label: m.label,
+                subtitle: m.subtitle,
+                onTap: () => context.push('/org/$orgId/${m.route}'),
+              ),
+          ]),
+          const _ModeGroup(),
+          const SizedBox(height: SkorxSpace.lg),
+          Text(
+            'Streaming, certificates and integrations are managed on the SkorX web dashboard.',
+            style: TextStyle(color: colors.textMuted, fontSize: 12.5),
+          ),
+        ],
+      ),
     );
+  }
+}
+
+/// Organiser ⇄ Player, kept out of the top bar because organisers rarely
+/// switch mid-tournament. The same account either way.
+class _ModeGroup extends ConsumerWidget {
+  const _ModeGroup();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(workspaceControllerProvider);
+    final organisations = state.available.whereType<OrganizerWorkspace>().length;
+    return SkxGroup(title: 'Mode', children: [
+      SkxRow(
+        key: const Key('switchToPlayer'),
+        icon: Icons.sports_tennis_rounded,
+        iconColor: context.skorx.colors.cyan,
+        label: 'Switch to Player',
+        subtitle: 'Your matches, stats and courts',
+        onTap: () => switchWorkspace(context, const PlayerWorkspace()),
+      ),
+      if (organisations > 1)
+        SkxRow(
+          key: const Key('switchOrganisation'),
+          icon: Icons.swap_horiz_rounded,
+          label: 'Switch organisation',
+          subtitle: '$organisations organisations',
+          onTap: () => showWorkspaceSwitcher(context),
+        ),
+    ]);
   }
 }

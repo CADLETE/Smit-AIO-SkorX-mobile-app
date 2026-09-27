@@ -4,79 +4,59 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/theme/app_theme.dart';
 import '../../app/theme/tokens.dart';
+import '../../app/theme/typography.dart';
 import 'workspace.dart';
 import 'workspace_controller.dart';
 
 IconData workspaceIcon(Workspace workspace) => switch (workspace) {
       PlayerWorkspace() => Icons.sports_tennis_rounded,
       OrganizerWorkspace() => Icons.dashboard_customize_rounded,
-      RefereeWorkspace() => Icons.sports_rounded,
     };
 
-/// The current workspace, top left of every shell. Tapping it opens the
-/// switcher; it never takes a slot in the bottom navigation.
-class WorkspaceChip extends ConsumerWidget {
-  const WorkspaceChip({super.key});
+/// The current workspace, top left of the shell. Just a label: switching
+/// happens from the Profile tab.
+class WorkspaceTitle extends ConsumerWidget {
+  const WorkspaceTitle({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(workspaceControllerProvider);
-    final current = state.current;
+    final current = ref.watch(workspaceControllerProvider.select((s) => s.current));
     final colors = context.skorx.colors;
-    final canSwitch = state.available.length > 1;
-
     return Semantics(
-      button: canSwitch,
-      label: canSwitch ? 'Workspace: ${current.title}. Switch workspace' : 'Workspace: ${current.title}',
+      header: true,
+      label: '${current.title}, ${current.subtitle}',
       excludeSemantics: true,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(SkorxRadius.xl),
-        onTap: canSwitch ? () => showWorkspaceSwitcher(context) : null,
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 44),
-          padding: const EdgeInsets.fromLTRB(SkorxSpace.sm, SkorxSpace.xs, SkorxSpace.md, SkorxSpace.xs),
-          decoration: BoxDecoration(
-            color: colors.surface,
-            borderRadius: BorderRadius.circular(SkorxRadius.xl),
-            border: Border.all(color: colors.border),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: context.skorx.highlight.withValues(alpha: 0.18),
+            child: Icon(workspaceIcon(current), size: 17, color: context.skorx.highlight),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircleAvatar(
-                radius: 14,
-                backgroundColor: context.skorx.highlight.withValues(alpha: 0.18),
-                child: Icon(workspaceIcon(current), size: 16, color: context.skorx.highlight),
-              ),
-              const SizedBox(width: SkorxSpace.sm),
-              Flexible(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      current.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-                    ),
-                    if (current is! PlayerWorkspace)
-                      Text(
-                        current.subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 11, color: colors.textMuted),
-                      ),
-                  ],
+          const SizedBox(width: SkorxSpace.sm),
+          Flexible(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  current.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
                 ),
-              ),
-              if (canSwitch) ...[
-                const SizedBox(width: SkorxSpace.xs),
-                Icon(Icons.unfold_more_rounded, size: 18, color: colors.textMuted),
+                if (current is! PlayerWorkspace)
+                  Text(
+                    current.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 11, color: colors.textMuted),
+                  ),
               ],
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -107,7 +87,7 @@ Future<void> switchWorkspace(BuildContext context, Workspace target) async {
     showGeneralDialog<void>(
       context: context,
       barrierDismissible: false,
-      barrierLabel: 'Switching workspace',
+      barrierLabel: 'Switching mode',
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (_, _, _) => _SwitchingOverlay(target: target),
       transitionBuilder: (_, animation, _, child) => FadeTransition(opacity: animation, child: child),
@@ -126,27 +106,61 @@ class _SwitchingOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.skorx.colors;
-    final kind = switch (target) {
-      PlayerWorkspace() => 'Player workspace',
-      OrganizerWorkspace() => 'Organizer workspace',
-      RefereeWorkspace() => 'Referee workspace',
+    final (mode, accent) = switch (target) {
+      PlayerWorkspace() => ('PLAYER MODE', colors.cyan),
+      OrganizerWorkspace() => ('ORGANISER MODE', colors.lime),
     };
     return Material(
-      color: colors.background.withValues(alpha: 0.96),
+      color: colors.background.withValues(alpha: 0.97),
       child: Center(
         child: Semantics(
           liveRegion: true,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(workspaceIcon(target), size: 40, color: colors.blue),
-              const SizedBox(height: SkorxSpace.lg),
-              Text('Switching to', style: TextStyle(color: colors.textMuted)),
-              const SizedBox(height: SkorxSpace.xs),
-              Text(target.title, style: Theme.of(context).textTheme.headlineMedium, textAlign: TextAlign.center),
-              const SizedBox(height: SkorxSpace.xs),
-              Text(kind, style: TextStyle(color: colors.textMuted)),
-            ],
+          label: 'Switching to ${target.title}, ${mode.toLowerCase()}',
+          excludeSemantics: true,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: MediaQuery.of(context).disableAnimations ? 1 : 0, end: 1),
+            duration: const Duration(milliseconds: 380),
+            curve: Curves.easeOutCubic,
+            builder: (_, t, child) => Opacity(
+              opacity: t,
+              child: Transform.translate(offset: Offset(0, 12 * (1 - t)), child: child),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: accent.withValues(alpha: 0.14),
+                    border: Border.all(color: accent.withValues(alpha: 0.5), width: 1.5),
+                  ),
+                  child: Icon(workspaceIcon(target), size: 34, color: accent),
+                ),
+                const SizedBox(height: SkorxSpace.xl),
+                Text(mode, style: SkorxType.headline(44, color: colors.text)),
+                const SizedBox(height: SkorxSpace.sm),
+                Text(
+                  target is PlayerWorkspace ? 'Your matches, stats and courts' : target.title,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: colors.textMuted, fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: SkorxSpace.xl),
+                SizedBox(
+                  width: 120,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: LinearProgressIndicator(
+                      minHeight: 3,
+                      color: accent,
+                      backgroundColor: colors.surfaceInteractive,
+                      value: MediaQuery.of(context).disableAnimations ? 1 : null,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -161,7 +175,6 @@ class _WorkspaceSheet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(workspaceControllerProvider);
     final organizations = state.available.whereType<OrganizerWorkspace>().toList();
-    final referee = state.available.whereType<RefereeWorkspace>().firstOrNull;
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -169,16 +182,12 @@ class _WorkspaceSheet extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Switch workspace', style: Theme.of(context).textTheme.titleLarge),
+            Text('SWITCH MODE', style: SkorxType.headline(28, color: context.skorx.colors.text)),
             const SizedBox(height: SkorxSpace.md),
             _WorkspaceTile(workspace: const PlayerWorkspace(), selected: state.current is PlayerWorkspace),
             if (organizations.isNotEmpty) ...[
-              const _SheetLabel('Organizations'),
+              const _SheetLabel('Organiser'),
               for (final org in organizations) _WorkspaceTile(workspace: org, selected: state.current.key == org.key),
-            ],
-            if (referee != null) ...[
-              const _SheetLabel('Referee'),
-              _WorkspaceTile(workspace: referee, selected: state.current is RefereeWorkspace),
             ],
           ],
         ),

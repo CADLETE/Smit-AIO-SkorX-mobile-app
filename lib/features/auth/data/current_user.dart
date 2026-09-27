@@ -42,12 +42,17 @@ class CurrentUser {
     required this.profileComplete,
     required this.memberships,
     this.email,
+    this.xCode,
   });
 
   final String id;
   final String name;
   final String? phone;
   final String? email;
+
+  /// The player's X code ("7K2Q", see `XCode`); null until the server has
+  /// assigned one.
+  final String? xCode;
 
   /// False right after a phone number's first sign-in: ask for name and details.
   final bool profileComplete;
@@ -58,6 +63,7 @@ class CurrentUser {
         name: json['name'] as String? ?? '',
         phone: json['phone'] as String?,
         email: json['email'] as String?,
+        xCode: json['xCode'] as String?,
         profileComplete: json['profileComplete'] as bool? ?? true,
         memberships: ((json['memberships'] as List<dynamic>?) ?? const [])
             .cast<Map<String, dynamic>>()
@@ -70,6 +76,7 @@ class CurrentUser {
         'name': name,
         'phone': phone,
         'email': email,
+        if (xCode != null) 'xCode': xCode,
         'profileComplete': profileComplete,
         'memberships': memberships.map((m) => m.toJson()).toList(),
       };

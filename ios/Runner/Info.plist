@@ -66,5 +66,11 @@
 		</array>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>SkorX uses your location to show courts, tournaments and players near you.</string>
+		<key>NSCameraUsageDescription</key>
+		<string>SkorX uses the camera to take your player photo.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>SkorX lets you choose a player photo from your library.</string>
 	</dict>
 </plist>

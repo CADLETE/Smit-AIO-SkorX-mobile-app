@@ -6,7 +6,7 @@ import '../app/theme/tokens.dart';
 /// The SkorX brand logo (transparent PNG with its own dark outline, so it
 /// reads on both light and dark surfaces).
 class SkorxLogo extends StatelessWidget {
-  const SkorxLogo({super.key, this.height = 32});
+  const SkorxLogo({super.key, this.height = 32, this.glow = false});
 
   static const asset = 'assets/brand/skorx_logo.png';
 
@@ -15,11 +15,15 @@ class SkorxLogo extends StatelessWidget {
 
   final double height;
 
+  /// A soft volt-and-blue light behind the mark, for the starting screens
+  /// where the logo is the hero.
+  final bool glow;
+
   @override
   Widget build(BuildContext context) {
     // Decode at display size instead of the full 3.5k source.
     final cacheHeight = (height * MediaQuery.devicePixelRatioOf(context)).round();
-    return Image.asset(
+    final image = Image.asset(
       asset,
       height: height,
       width: height * aspectRatio,
@@ -27,6 +31,35 @@ class SkorxLogo extends StatelessWidget {
       fit: BoxFit.contain,
       filterQuality: FilterQuality.medium,
       semanticLabel: 'SkorX',
+    );
+    if (!glow) return image;
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        Positioned(
+          left: -height * 0.6,
+          right: -height * 0.6,
+          top: -height * 0.9,
+          bottom: -height * 0.9,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  radius: 0.62,
+                  colors: [
+                    SkorxColors.dark.lime.withValues(alpha: 0.22),
+                    SkorxColors.dark.blue.withValues(alpha: 0.10),
+                    SkorxColors.dark.blue.withValues(alpha: 0),
+                  ],
+                  stops: const [0, 0.5, 1],
+                ),
+              ),
+            ),
+          ),
+        ),
+        image,
+      ],
     );
   }
 }

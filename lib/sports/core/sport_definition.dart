@@ -72,4 +72,7 @@ const racketCategories = [
   MatchCategory(id: 'womens_singles', label: "Women's Singles", playersPerSide: 1),
   MatchCategory(id: 'mens_doubles', label: "Men's Doubles", playersPerSide: 2),
   MatchCategory(id: 'womens_doubles', label: "Women's Doubles", playersPerSide: 2),
+  MatchCategory(id: 'kids_singles', label: 'Kids Singles', playersPerSide: 1),
+  MatchCategory(id: 'kids_doubles', label: 'Kids Doubles', playersPerSide: 2),
+  MatchCategory(id: 'kids_mixed_doubles', label: 'Kids Mixed Doubles', playersPerSide: 2),
 ];

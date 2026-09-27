@@ -58,28 +58,6 @@ class OrganizerWorkspace extends Workspace {
   bool can(String capability) => membership.can(capability);
 }
 
-class RefereeWorkspace extends Workspace {
-  const RefereeWorkspace(this.memberships);
-
-  /// Organizations the user referees for.
-  final List<Membership> memberships;
-
-  @override
-  String get key => 'referee';
-  @override
-  String get title => 'Referee';
-  @override
-  String get subtitle => memberships.length == 1
-      ? memberships.first.organizationName
-      : '${memberships.length} organizations';
-  @override
-  String get pathPrefix => '/referee';
-  @override
-  String get homeLocation => '/referee/current';
-  @override
-  WorkspaceAccent get accent => WorkspaceAccent.operations;
-}
-
 String roleLabel(String role) => switch (role) {
       'owner' => 'Owner',
       'tournament_admin' => 'Admin',
@@ -92,15 +70,13 @@ String roleLabel(String role) => switch (role) {
     };
 
 /// Every workspace the user can open, in switcher order: Player first, then
-/// organizations by name, then Referee. A referee-only membership never
-/// opens an organizer workspace.
+/// organizations by name. There is no referee mode, so a referee-only
+/// membership never opens a workspace.
 List<Workspace> workspacesFor(CurrentUser user) {
   final organizer = user.memberships.where((m) => m.role != 'referee').toList()
     ..sort((a, b) => a.organizationName.toLowerCase().compareTo(b.organizationName.toLowerCase()));
-  final refereeing = user.memberships.where((m) => m.role == 'referee').toList();
   return [
     const PlayerWorkspace(),
     ...organizer.map(OrganizerWorkspace.new),
-    if (refereeing.isNotEmpty) RefereeWorkspace(refereeing),
   ];
 }

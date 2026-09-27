@@ -20,6 +20,7 @@ class SkorxColors {
     required this.limeText,
     required this.live,
     required this.success,
+    required this.warning,
   });
 
   final Color background;
@@ -40,6 +41,9 @@ class SkorxColors {
   final Color live;
   final Color success;
 
+  /// Closing soon, few spots left, pending.
+  final Color warning;
+
   static const dark = SkorxColors(
     background: Color(0xFF060A10),
     surface: Color(0xFF0D131C),
@@ -56,6 +60,7 @@ class SkorxColors {
     limeText: Color(0xFFD7F062),
     live: Color(0xFFFB7185),
     success: Color(0xFF34D399),
+    warning: Color(0xFFFBBF24),
   );
 
   static const light = SkorxColors(
@@ -74,14 +79,15 @@ class SkorxColors {
     limeText: Color(0xFF6F8F00),
     live: Color(0xFFE11D48),
     success: Color(0xFF059669),
+    warning: Color(0xFFB45309),
   );
 }
 
 /// Radii used across the app.
 abstract final class SkorxRadius {
-  static const sm = 8.0;
-  static const md = 12.0;
-  static const lg = 20.0;
+  static const sm = 10.0;
+  static const md = 14.0;
+  static const lg = 22.0;
   static const xl = 28.0;
 }
 

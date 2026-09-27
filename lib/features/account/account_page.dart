@@ -12,7 +12,11 @@ import '../workspace/workspace_switcher.dart';
 /// The person behind the account, the same in every workspace: identity,
 /// the workspaces they can open, and signing out.
 class AccountPage extends ConsumerWidget {
-  const AccountPage({super.key});
+  const AccountPage({super.key, this.sections = const []});
+
+  /// Workspace-specific sections shown between the identity row and the
+  /// workspaces, e.g. the player's performance.
+  final List<Widget> sections;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -45,6 +49,7 @@ class AccountPage extends ConsumerWidget {
             ),
           ],
         ),
+        ...sections,
         const SectionHeader('Workspaces'),
         for (final workspace in workspaces.available)
           Padding(

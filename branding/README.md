@@ -5,8 +5,8 @@ Source images for the launcher icon and native splash. Not bundled into the app
 
 | File | Use |
 | --- | --- |
-| `app_icon.png` | iOS + legacy Android icon (opaque, full bleed; OS applies the mask) |
-| `app_icon_foreground.png` | Android adaptive icon foreground, on `#09121E` (full bleed; the generator insets it 16%) |
+| `app_icon.png` | iOS + legacy Android icon (opaque; OS applies the mask). The mark is scaled to 80% on the `#09121E` tile for breathing room in the launcher. |
+| `app_icon_foreground.png` | Android adaptive icon foreground, on `#09121E` (mark at 80%, as above; the generator insets it a further 16%) |
 | `splash_logo.png` | Native splash mark on `#060A10` |
 | `splash_android12.png` | Android 12+ splash icon, on `#09121E` (icon at 80% so the ball fits the circular mask) |
 

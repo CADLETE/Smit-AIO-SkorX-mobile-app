@@ -12,22 +12,20 @@ void main() {
       expect(workspacesFor(user()).map((w) => w.key), ['player']);
     });
 
-    test('lists organizations by name, and referee roles as one Referee workspace', () {
+    test('lists organizations by name, and opens nothing for referee roles', () {
       final workspaces = workspacesFor(user(memberships: [
         membership('b', 'Zeta Club', 'tournament_admin'),
         membership('a', 'Ahmedabad Pickleball Club', 'owner'),
         membership('c', 'XYZ Sports', 'referee'),
         membership('d', 'Delta Open', 'referee'),
       ]));
-      expect(workspaces.map((w) => w.key), ['player', 'org:a', 'org:b', 'referee']);
-      expect(workspaces.last.subtitle, '2 organizations');
+      expect(workspaces.map((w) => w.key), ['player', 'org:a', 'org:b']);
       expect((workspaces[1] as OrganizerWorkspace).subtitle, 'Owner');
     });
 
-    test('a referee-only membership never opens organizer tools', () {
+    test('a referee-only membership leaves just the Player workspace', () {
       final workspaces = workspacesFor(user(memberships: [membership('c', 'XYZ Sports', 'referee')]));
-      expect(workspaces.whereType<OrganizerWorkspace>(), isEmpty);
-      expect(workspaces.whereType<RefereeWorkspace>(), hasLength(1));
+      expect(workspaces.map((w) => w.key), ['player']);
     });
   });
 

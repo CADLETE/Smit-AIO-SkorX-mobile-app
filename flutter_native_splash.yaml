@@ -1,13 +1,20 @@
 # Regenerate with: dart run flutter_native_splash:create
-# Background matches the dark theme background (SkorxColors.dark.background),
-# so the native splash hands off to the Flutter SplashScreen without a flash.
+# The splash is the opening scene of the launch animation (the court under
+# its light, rendered from SkorxIntro with started: false). Flutter's first
+# frame is the same picture, and the ball flies in from there, so launch
+# reads as one continuous animation instead of a still icon or a blank screen.
+# Re-render branding/splash_scene.png if the intro's court or light changes.
+# After regenerating, move android/app/src/main/res/drawable/background.png to
+# drawable-nodpi/ (and delete drawable-v21/background.png): in drawable/ Android
+# treats it as mdpi and decodes it 3x larger, slowing the splash.
 flutter_native_splash:
-  color: "#060A10"
-  image: branding/splash_logo.png
+  background_image: branding/splash_scene.png
   android_12:
+    # Android 12+ draws its own splash (colour + icon); a transparent icon on
+    # the SkorX background shows nothing, then the scene takes over.
     color: "#060A10"
-    icon_background_color: "#09121E"
-    image: branding/splash_android12.png
+    icon_background_color: "#060A10"
+    image: branding/splash_blank.png
   android: true
   ios: true
   web: false

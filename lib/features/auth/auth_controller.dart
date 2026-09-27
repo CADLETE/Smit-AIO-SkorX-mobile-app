@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -5,6 +6,7 @@ import '../../core/api/api_client.dart';
 import '../../core/auth/token_store.dart';
 import 'data/auth_repository.dart';
 import 'data/current_user.dart';
+import 'data/dev_auth_repository.dart';
 
 final tokenStoreProvider = Provider<TokenStore>((ref) => SecureTokenStore());
 
@@ -17,12 +19,20 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   return client;
 });
 
+/// Debug builds skip the real OTP sign-in (see [DevAuthRepository]). Build
+/// with `--dart-define=REAL_AUTH=true` to sign in against the API instead,
+/// or with `--dart-define=DEV_AUTH=true` to use the dev sign-in in a profile
+/// build (fast start-up, as users get it, without a server).
+const _useRealAuth = bool.fromEnvironment('REAL_AUTH') || (!kDebugMode && !bool.fromEnvironment('DEV_AUTH'));
+
 final authRepositoryProvider = Provider<AuthRepository>(
-  (ref) => ApiAuthRepository(
-    ref.watch(apiClientProvider),
-    ref.watch(tokenStoreProvider),
-    ref.watch(preferencesProvider),
-  ),
+  (ref) => _useRealAuth
+      ? ApiAuthRepository(
+          ref.watch(apiClientProvider),
+          ref.watch(tokenStoreProvider),
+          ref.watch(preferencesProvider),
+        )
+      : DevAuthRepository(ref.watch(preferencesProvider)),
 );
 
 sealed class AuthState {
@@ -61,10 +71,12 @@ class AuthController extends Notifier<AuthState> {
   Future<void> _restore() async {
     try {
       final restored = await _repo.restore();
+      // The provider may have been disposed while the session was loading.
+      if (!ref.mounted) return;
       state = restored == null ? const SignedOut() : SignedIn(restored.user, fromCache: restored.fromCache);
     } catch (_) {
       // Revoked or unreadable session: start again from sign-in.
-      state = const SignedOut();
+      if (ref.mounted) state = const SignedOut();
     }
   }
 

@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
 
+import '../../design/fx.dart';
+import '../../design/tokens.dart';
+import '../../design/type.dart';
 import 'tokens.dart';
 
 /// Which workspace the theme is for. Player is personal and energetic
-/// (cyan/blue); organizer and referee are operational (lime/blue).
+/// (cyan/blue); organizer is operational (lime/blue).
 enum WorkspaceAccent { player, operations }
 
 /// Builds the app theme. The two workspaces share every token except the
 /// accent, so they read as one product with different emphasis.
 ThemeData buildSkorxTheme({required Brightness brightness, required WorkspaceAccent accent}) {
   final colors = brightness == Brightness.dark ? SkorxColors.dark : SkorxColors.light;
+  // The Player workspace is drawn with the SkorX player design system
+  // (docs/PLAYER-APP.md §3); organiser keeps its tokens.
+  final sx = brightness == Brightness.dark ? SxColors.dark : SxColors.light;
   final isOps = accent == WorkspaceAccent.operations;
   final primary = colors.blue;
   // Accent used for the active navigation indicator and highlights.
@@ -41,22 +47,43 @@ ThemeData buildSkorxTheme({required Brightness brightness, required WorkspaceAcc
     useMaterial3: true,
     brightness: brightness,
     colorScheme: scheme,
-    scaffoldBackgroundColor: colors.background,
-    extensions: [SkorxThemeExtension(colors: colors, highlight: highlight, accent: accent)],
+    fontFamily: SxType.sans,
+    // Every route paints the ambient backdrop (SxPageTransitions), so
+    // scaffolds are see-through.
+    scaffoldBackgroundColor: Colors.transparent,
+    canvasColor: isOps ? colors.background : sx.canvas,
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: SxPageTransitions(),
+        TargetPlatform.iOS: SxPageTransitions(),
+        TargetPlatform.macOS: SxPageTransitions(),
+        TargetPlatform.windows: SxPageTransitions(),
+        TargetPlatform.linux: SxPageTransitions(),
+        TargetPlatform.fuchsia: SxPageTransitions(),
+      },
+    ),
+    extensions: [SkorxThemeExtension(colors: colors, highlight: highlight, accent: accent), sx],
   );
 
   final text = base.textTheme.apply(bodyColor: colors.text, displayColor: colors.text);
 
-  return base.copyWith(
+  final theme = base.copyWith(
     textTheme: text.copyWith(
-      displayLarge: text.displayLarge?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -1.5),
-      headlineMedium: text.headlineMedium?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -0.5),
-      titleLarge: text.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-      titleMedium: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-      labelLarge: text.labelLarge?.copyWith(fontWeight: FontWeight.w700, letterSpacing: 0.2),
+      displayLarge: text.displayLarge?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -1.5, fontSize: 48),
+      headlineLarge: text.headlineLarge?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -0.8, fontSize: 26),
+      headlineMedium: text.headlineMedium?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -0.6, fontSize: 23),
+      headlineSmall: text.headlineSmall?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -0.4, fontSize: 20),
+      titleLarge: text.titleLarge?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -0.3, fontSize: 18),
+      titleMedium: text.titleMedium?.copyWith(fontWeight: FontWeight.w700, fontSize: 15),
+      titleSmall: text.titleSmall?.copyWith(fontWeight: FontWeight.w700, fontSize: 13),
+      bodyLarge: text.bodyLarge?.copyWith(fontSize: 15, fontWeight: FontWeight.w500),
+      bodyMedium: text.bodyMedium?.copyWith(fontSize: 13.5, fontWeight: FontWeight.w500),
+      bodySmall: text.bodySmall?.copyWith(fontSize: 12, fontWeight: FontWeight.w500),
+      labelLarge: text.labelLarge?.copyWith(fontWeight: FontWeight.w700, letterSpacing: 0.1, fontSize: 14),
     ),
     appBarTheme: AppBarTheme(
-      backgroundColor: colors.background,
+      backgroundColor: Colors.transparent,
+      titleTextStyle: TextStyle(fontFamily: SxType.sans, fontSize: 18, fontWeight: FontWeight.w800, color: colors.text),
       foregroundColor: colors.text,
       elevation: 0,
       scrolledUnderElevation: 0,
@@ -88,11 +115,27 @@ ThemeData buildSkorxTheme({required Brightness brightness, required WorkspaceAcc
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
+        // Same as the SkxButton primary: lime with navy ink.
+        backgroundColor: colors.lime,
+        foregroundColor: const Color(0xFF0B1C33),
+        disabledBackgroundColor: colors.lime.withValues(alpha: 0.3),
+        disabledForegroundColor: const Color(0xFF0B1C33).withValues(alpha: 0.5),
         minimumSize: const Size.fromHeight(52),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(SkorxRadius.md)),
-        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        textStyle: const TextStyle(fontFamily: SxType.sans, fontSize: 15, fontWeight: FontWeight.w800),
       ),
     ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: isOps ? colors.surfaceElevated : sx.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(SkorxRadius.xl)),
+      titleTextStyle: TextStyle(fontFamily: SxType.sans, fontSize: 19, fontWeight: FontWeight.w800, color: colors.text),
+    ),
+    chipTheme: ChipThemeData(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      side: BorderSide(color: colors.border),
+      labelStyle: const TextStyle(fontFamily: SxType.sans, fontWeight: FontWeight.w700, fontSize: 13),
+    ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(color: highlight),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         minimumSize: const Size.fromHeight(52),
@@ -118,6 +161,23 @@ ThemeData buildSkorxTheme({required Brightness brightness, required WorkspaceAcc
         borderSide: BorderSide(color: primary, width: 2),
       ),
     ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: colors.surfaceInteractive,
+      contentTextStyle: TextStyle(color: colors.text, fontWeight: FontWeight.w600),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(SkorxRadius.md)),
+      insetPadding: const EdgeInsets.fromLTRB(SkorxSpace.lg, 0, SkorxSpace.lg, 96),
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected) ? colors.navy : colors.textMuted,
+      ),
+      trackColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected) ? colors.lime : colors.surfaceInteractive,
+      ),
+      trackOutlineColor: WidgetStateProperty.all(colors.border),
+    ),
+    dividerTheme: DividerThemeData(color: colors.border, thickness: 1, space: 1),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: colors.surface,
       showDragHandle: true,
@@ -125,6 +185,53 @@ ThemeData buildSkorxTheme({required Brightness brightness, required WorkspaceAcc
         borderRadius: BorderRadius.vertical(top: Radius.circular(SkorxRadius.xl)),
       ),
     ),
+  );
+  if (isOps) return theme;
+  return theme.copyWith(
+    textTheme: theme.textTheme.apply(bodyColor: sx.ink, displayColor: sx.ink),
+    appBarTheme: theme.appBarTheme.copyWith(backgroundColor: sx.canvas, foregroundColor: sx.ink),
+    dividerTheme: DividerThemeData(color: sx.line, thickness: 1, space: 1),
+    bottomSheetTheme: theme.bottomSheetTheme.copyWith(backgroundColor: sx.surface, dragHandleColor: sx.line),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: sx.primaryFill,
+        foregroundColor: sx.onPrimary,
+        disabledBackgroundColor: sx.surfaceAlt,
+        disabledForegroundColor: sx.inkFaint,
+        minimumSize: const Size.fromHeight(54),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Sx.radius)),
+        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      ),
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected) ? sx.onVolt : sx.inkMuted,
+      ),
+      trackColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected) ? sx.voltFill : sx.surfaceAlt,
+      ),
+      trackOutlineColor: WidgetStateProperty.all(sx.line),
+    ),
+    snackBarTheme: theme.snackBarTheme.copyWith(
+      backgroundColor: sx.ink,
+      contentTextStyle: TextStyle(color: sx.canvas, fontWeight: FontWeight.w600),
+    ),
+    inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+      fillColor: sx.surface,
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(Sx.radius),
+        borderSide: BorderSide(color: sx.line),
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(Sx.radius),
+        borderSide: BorderSide(color: sx.line),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(Sx.radius),
+        borderSide: BorderSide(color: sx.ink, width: 1.5),
+      ),
+    ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(color: sx.ink),
   );
 }
 

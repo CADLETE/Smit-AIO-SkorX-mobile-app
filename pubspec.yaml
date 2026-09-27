@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.13.4
+  sdk: ^3.10.0
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -34,13 +34,20 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  flutter_riverpod: ^3.4.3
-  go_router: ^18.0.1
-  dio: ^5.11.1
+  flutter_riverpod: ^3.0.0
+  go_router: ^17.0.0
+  dio: ^5.0.0
   flutter_secure_storage: ^11.2.0
-  shared_preferences: ^2.5.5
-  uuid: ^4.6.0
-  wakelock_plus: ^1.8.0
+  shared_preferences: ^2.3.0
+  uuid: ^4.0.0
+  wakelock_plus: ^1.3.0
+  image_picker: ^1.2.3
+  path_provider: ^2.1.6
+  font_awesome_flutter: ^11.0.0
+  # 12.x: 13.x pulls permission_handler_android 14, which needs AGP 9.
+  permission_handler: ^12.0.1
+  flutter_tts: ^4.2.5
+  share_plus: ^13.3.0
 
 dev_dependencies:
   flutter_test:
@@ -52,9 +59,9 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
-  shared_preferences_platform_interface: ^2.4.2
-  flutter_launcher_icons: ^0.14.4
-  flutter_native_splash: ^2.4.8
+  shared_preferences_platform_interface: ^2.4.0
+  flutter_launcher_icons: ^0.14.0
+  flutter_native_splash: ^2.4.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -72,7 +79,21 @@ flutter:
 
   # Display face for scores and headlines (SIL Open Font License,
   # assets/fonts/OFL-BarlowCondensed.txt). Body text uses the platform font.
+  # Reading and UI face (SIL Open Font License,
+  # assets/fonts/OFL-PlusJakartaSans.txt).
   fonts:
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/PlusJakartaSans-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/PlusJakartaSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/PlusJakartaSans-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/PlusJakartaSans-ExtraBold.ttf
+          weight: 800
     - family: BarlowCondensed
       fonts:
         - asset: assets/fonts/BarlowCondensed-SemiBold.ttf
