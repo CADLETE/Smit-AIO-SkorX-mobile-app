@@ -4,10 +4,13 @@ import 'package:go_router/go_router.dart';
 
 import '../../design/design.dart';
 import '../../shared/format.dart';
+import '../casual_match/verification/ui/match_requests_list.dart';
+import '../casual_match/verification/verification_controller.dart';
 import 'notifications.dart';
 
 IconData _icon(NotificationKind k) => switch (k) {
       NotificationKind.matchReminder => Icons.sports_tennis_rounded,
+      NotificationKind.matchRequest => Icons.fact_check_outlined,
       NotificationKind.result => Icons.scoreboard_outlined,
       NotificationKind.tournament => Icons.emoji_events_outlined,
       NotificationKind.registration => Icons.how_to_reg_outlined,
@@ -15,16 +18,36 @@ IconData _icon(NotificationKind k) => switch (k) {
       NotificationKind.rating => Icons.trending_up_rounded,
       NotificationKind.achievement => Icons.workspace_premium_outlined,
       NotificationKind.announcement => Icons.campaign_outlined,
+      NotificationKind.community => Icons.diversity_3_outlined,
+      NotificationKind.lookingFor => Icons.radar_rounded,
+      NotificationKind.account => Icons.shield_outlined,
+      NotificationKind.official => Icons.sports_rounded,
+      NotificationKind.subscription => Icons.bolt_rounded,
+      NotificationKind.organizer => Icons.dashboard_customize_outlined,
+      NotificationKind.explore => Icons.explore_outlined,
     };
 
-const _tabs = ['/player/home', '/player/matches', '/player/explore', '/player/paddle', '/player/profile'];
+const _tabs = ['/player/home', '/player/matches', '/player/community', '/player/explore', '/player/paddle', '/player/profile'];
+
+enum NotificationsTab { all, requests }
 
 /// Unread first, one line each, and every item goes where it is about.
-class NotificationsPage extends ConsumerWidget {
-  const NotificationsPage({super.key});
+/// Match requests (casual matches waiting for the player's confirmation)
+/// have their own tab, so they are never lost among the news.
+class NotificationsPage extends ConsumerStatefulWidget {
+  const NotificationsPage({super.key, this.initialTab = NotificationsTab.all});
+
+  final NotificationsTab initialTab;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<NotificationsPage> createState() => _NotificationsPageState();
+}
+
+class _NotificationsPageState extends ConsumerState<NotificationsPage> {
+  late NotificationsTab _tab = widget.initialTab;
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.sx;
     final list = ref.watch(notificationsProvider);
     final ctl = ref.read(notificationsProvider.notifier);
@@ -106,6 +129,17 @@ class NotificationsPage extends ConsumerWidget {
                 ],
               ),
               const SxTitleBar(title: 'Notifications'),
+              SxTabs<NotificationsTab>(
+                tabs: [
+                  (NotificationsTab.all, 'All', null),
+                  (NotificationsTab.requests, 'Match requests', ref.watch(matchRequestCountProvider)),
+                ],
+                selected: _tab,
+                onSelect: (t) => setState(() => _tab = t),
+              ),
+              if (_tab == NotificationsTab.requests)
+                const Expanded(child: MatchRequestsList())
+              else
               Expanded(
                 child: switch (list) {
                   AsyncData(:final value) when value.isEmpty => const EmptyBlock(

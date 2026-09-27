@@ -11,6 +11,7 @@ import '../../../shared/widgets.dart';
 import '../../auth/auth_controller.dart';
 import '../../settings/app_settings.dart';
 import '../../workspace/workspace_controller.dart';
+import '../app_tour.dart';
 import '../onboarding_controller.dart';
 import 'onboarding_kit.dart';
 import 'player_photo.dart';
@@ -58,6 +59,8 @@ class _ProfileCompleteScreenState extends ConsumerState<ProfileCompleteScreen> w
     if (_exit.isAnimating) return;
     HapticFeedback.mediumImpact();
     if (!reduceMotion(context)) await _exit.forward();
+    // A brand-new player gets the walk through the app on Home.
+    unawaited(ref.read(appTourProvider.notifier).queue());
     if (mounted) await _enterApp(context, ref);
   }
 

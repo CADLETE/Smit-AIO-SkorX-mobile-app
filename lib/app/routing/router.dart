@@ -8,10 +8,27 @@ import '../../features/auth/auth_controller.dart';
 import '../../features/auth/ui/profile_setup_screen.dart';
 import '../../features/auth/ui/sign_in_screen.dart';
 import '../../features/auth/ui/verify_screen.dart';
+import '../../features/casual_match/offline/ui/offline_ui.dart';
 import '../../features/casual_match/ui/create_match_screen.dart';
 import '../../features/casual_match/ui/scoring_screen.dart';
+import '../../features/community/data/community.dart' show CommunitySector;
+import '../../features/community/data/content.dart' show FeedScope;
+import '../../features/community/ui/community_page.dart';
+import '../../features/community/ui/community_search_page.dart';
+import '../../features/community/ui/events_pages.dart';
+import '../../features/community/ui/groups_pages.dart';
+import '../../features/community/ui/member_page.dart';
+import '../../features/community/ui/messages_pages.dart';
+import '../../features/community/ui/my_community_pages.dart';
+import '../../features/community/ui/place_page.dart';
+import '../../features/community/ui/posts_pages.dart';
 import '../../features/courts/ui/booking_pages.dart';
-import '../../features/explore/explore_page.dart';
+import '../../features/explore/ui/explore_hub_page.dart';
+import '../../features/looking_for/ui/alerts_page.dart';
+import '../../features/looking_for/ui/create_post_page.dart';
+import '../../features/looking_for/ui/looking_for_home_page.dart';
+import '../../features/looking_for/ui/post_detail_page.dart';
+import '../../features/looking_for/ui/responses_page.dart';
 import '../../features/matches/ui/match_detail_page.dart';
 import '../../features/matches/ui/matches_page.dart';
 import '../../features/notifications/notifications_page.dart';
@@ -24,15 +41,23 @@ import '../../features/organizer/organizer_routes.dart';
 import '../../features/paddle/my_play_pages.dart';
 import '../../features/paddle/paddle_pages.dart';
 import '../../features/player/home/player_home_page.dart';
+import '../../features/player/data/player_repository.dart' show PlayCategory, RankScope;
 import '../../features/player/player_pages.dart';
 import '../../features/player/ui/player_stats_page.dart';
 import '../../features/profile/profile_pages.dart';
+import '../../features/subscription/data/plans.dart';
+import '../../features/subscription/ui/billing_pages.dart';
+import '../../features/subscription/ui/checkout_page.dart';
+import '../../features/subscription/ui/pro_plans_page.dart';
+import '../../features/subscription/ui/pro_result_pages.dart';
+import '../../features/subscription/ui/subscription_page.dart';
 import '../../features/tournaments/ui/tournament_hub_page.dart';
 import '../../features/shell/workspace_shell.dart';
 import '../../features/workspace/workspace_controller.dart';
 import '../../shared/widgets.dart';
 import '../theme/tokens.dart';
 import 'redirect.dart';
+import '../../features/casual_match/verification/ui/match_request_page.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   // Re-run redirects when sign-in or the set of workspaces changes, not on
@@ -88,9 +113,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) => CreateMatchScreen(initialCategoryId: state.uri.queryParameters['type']),
       ),
       GoRoute(path: '/player/match', builder: (_, _) => const ScoringScreen()),
+      GoRoute(path: '/player/offline-matches', builder: (_, _) => const OfflineMatchesPage()),
       GoRoute(
         path: '/player/matches/:id',
         builder: (_, state) => MatchDetailPage(matchId: state.pathParameters['id']!),
+      ),
+      // Casual match verification: one match's confirmation (docs/CASUAL-VERIFICATION.md).
+      GoRoute(path: '/player/match-requests', redirect: (_, _) => '/player/notifications?tab=requests'),
+      GoRoute(
+        path: '/player/match-requests/:id',
+        builder: (_, state) => MatchRequestPage(matchId: state.pathParameters['id']!),
       ),
       GoRoute(path: '/player/tournaments/mine', builder: (_, _) => const MyTournamentsPlayedPage()),
       // Any player's full stats, and two players head-to-head.
@@ -135,16 +167,130 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) => ConfirmBookingPage.fromQuery(state.pathParameters['id']!, state.uri.queryParameters),
       ),
       GoRoute(path: '/player/bookings', builder: (_, _) => const MyBookingsPage()),
-      GoRoute(path: '/player/rankings', builder: (_, _) => const RankingsPage()),
+      GoRoute(
+        path: '/player/rankings',
+        builder: (_, state) => RankingsPage(
+          scope: RankScope.values.asNameMap()[state.uri.queryParameters['scope']],
+          category: PlayCategory.values.asNameMap()[state.uri.queryParameters['format']],
+        ),
+      ),
       GoRoute(path: '/player/achievements', builder: (_, _) => const AchievementsPage()),
-      GoRoute(path: '/player/notifications', builder: (_, _) => const NotificationsPage()),
+      GoRoute(
+        path: '/player/notifications',
+        builder: (_, state) => NotificationsPage(
+          initialTab: state.uri.queryParameters['tab'] == 'requests' ? NotificationsTab.requests : NotificationsTab.all,
+        ),
+      ),
       GoRoute(path: '/player/settings', builder: (_, _) => const SettingsPage()),
       GoRoute(path: '/player/edit-profile', builder: (_, _) => const EditProfilePage()),
+      // SkorX Pro: plans, checkout, the result, managing the plan, billing.
+      GoRoute(
+        path: '/player/pro',
+        builder: (_, state) => ProPlansPage(feature: ProFeature.fromName(state.uri.queryParameters['feature'])),
+      ),
+      GoRoute(
+        path: '/player/pro/checkout',
+        builder: (_, state) => CheckoutPage(plan: ProPlan.fromName(state.uri.queryParameters['plan']) ?? ProPlan.annual),
+      ),
+      GoRoute(path: '/player/pro/welcome', builder: (_, state) => ProWelcomePage(orderId: state.uri.queryParameters['order'])),
+      GoRoute(
+        path: '/player/pro/failed',
+        builder: (_, state) => PaymentFailedPage(
+          plan: ProPlan.fromName(state.uri.queryParameters['plan']) ?? ProPlan.annual,
+          reason: state.uri.queryParameters['reason'],
+        ),
+      ),
+      GoRoute(path: '/player/subscription', builder: (_, _) => const SubscriptionPage()),
+      GoRoute(path: '/player/billing', builder: (_, _) => const BillingHistoryPage()),
+      GoRoute(
+        path: '/player/billing/:orderId',
+        builder: (_, state) => InvoicePage(orderId: state.pathParameters['orderId']!),
+      ),
+      // Looking For (docs/LOOKING-FOR.md §9). Fixed paths before ':id'.
+      GoRoute(
+        path: '/player/looking-for',
+        builder: (_, state) => LookingForHomePage(initialTab: state.uri.queryParameters['tab']),
+      ),
+      GoRoute(
+        path: '/player/looking-for/new',
+        builder: (_, state) => CreateLookingForPage(initialCategory: state.uri.queryParameters['category']),
+      ),
+      GoRoute(path: '/player/looking-for/alerts', builder: (_, _) => const LookingForAlertsPage()),
+      GoRoute(path: '/player/looking-for/mine', redirect: (_, _) => '/player/looking-for?tab=mine'),
+      GoRoute(
+        path: '/player/looking-for/:id',
+        builder: (_, state) => LookingForPostPage(postId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/player/looking-for/:id/responses',
+        builder: (_, state) => LookingForResponsesPage(postId: state.pathParameters['id']!),
+      ),
+      // Shared links (https://skorx.in/looking-for/:id) open the request.
+      GoRoute(path: '/looking-for/:id', redirect: (_, state) => '/player/looking-for/${state.pathParameters['id']}'),
       // Locations saved by earlier versions of the app.
-      GoRoute(path: '/player/tournaments', redirect: (_, _) => '/player/explore?view=tournaments'),
-      GoRoute(path: '/player/courts', redirect: (_, _) => '/player/explore?view=courts'),
+      GoRoute(path: '/player/tournaments', redirect: (_, _) => '/player/explore/tournaments'),
+      GoRoute(path: '/player/courts', redirect: (_, _) => '/player/explore/courts'),
       GoRoute(path: '/player/leaderboard', redirect: (_, _) => '/player/rankings'),
       GoRoute(path: '/player/venue/:id/review', redirect: (_, state) => state.uri.toString().replaceFirst('/review', '/confirm')),
+      // Community detail screens, full screen above the tabs
+      // (docs/COMMUNITY.md §3). Sector pages open inside the tab.
+      GoRoute(
+        path: '/player/community/search',
+        builder: (_, state) => Scaffold(body: CommunitySearchPage(initialText: state.uri.queryParameters['q'] ?? '')),
+      ),
+      GoRoute(
+        path: '/player/community/people/:id',
+        builder: (_, state) => MemberPage(memberId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/player/community/places/:id',
+        builder: (_, state) => PlacePage(placeId: state.pathParameters['id']!),
+      ),
+      GoRoute(path: '/player/community/groups', builder: (_, _) => const GroupsPage()),
+      GoRoute(
+        path: '/player/community/groups/:id',
+        builder: (_, state) => GroupPage(groupId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/player/community/messages',
+        builder: (_, state) => MessagesPage(requests: state.uri.queryParameters['tab'] == 'requests'),
+      ),
+      GoRoute(
+        path: '/player/community/messages/:id',
+        builder: (_, state) =>
+            ThreadPage(conversationId: state.pathParameters['id']!, draft: state.uri.queryParameters['draft']),
+      ),
+      GoRoute(path: '/player/community/me', builder: (_, _) => const MyCommunityPage()),
+      GoRoute(
+        path: '/player/community/connections',
+        builder: (_, state) => ConnectionsPage(
+          initial: ConnectionsView.values.where((v) => v.name == state.uri.queryParameters['tab']).firstOrNull ??
+              ConnectionsView.connected,
+        ),
+      ),
+      GoRoute(path: '/player/community/saved', builder: (_, _) => const SavedPage()),
+      GoRoute(path: '/player/community/events', builder: (_, _) => const EventsPage()),
+      GoRoute(
+        path: '/player/community/events/new',
+        builder: (_, state) =>
+            CreateEventPage(placeId: state.uri.queryParameters['placeId'], groupId: state.uri.queryParameters['groupId']),
+      ),
+      GoRoute(
+        path: '/player/community/events/:id',
+        builder: (_, state) => EventPage(eventId: state.pathParameters['id']!),
+      ),
+      GoRoute(path: '/player/community/posts', builder: (_, _) => const PostsPage()),
+      GoRoute(
+        path: '/player/community/posts/:id',
+        builder: (_, state) => PostPage(
+          postId: state.pathParameters['id']!,
+          scope: FeedScope(
+            groupId: state.uri.queryParameters['groupId'],
+            placeId: state.uri.queryParameters['placeId'],
+            authorId: state.uri.queryParameters['authorId'],
+          ),
+        ),
+      ),
       _shell(
         playerDestinations,
         [
@@ -155,7 +301,34 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/player/explore',
-            pageBuilder: (_, state) => NoTransitionPage(child: ExplorePage(view: state.uri.queryParameters['view'])),
+            // Old `?view=courts` links open that module.
+            redirect: (_, state) =>
+                state.uri.path == '/player/explore' && state.uri.queryParameters['view'] != null
+                    ? '/player/explore/${state.uri.queryParameters['view']}'
+                    : null,
+            pageBuilder: (_, _) => const NoTransitionPage(child: ExploreHubPage()),
+            routes: [
+              GoRoute(
+                path: ':module',
+                redirect: (_, state) => exploreModuleRedirect(state.pathParameters['module']!),
+                builder: (_, state) => ExploreModulePage(id: state.pathParameters['module']!),
+              ),
+            ],
+          ),
+          GoRoute(
+            path: '/player/community',
+            pageBuilder: (_, _) => const NoTransitionPage(child: CommunityPage()),
+            routes: [
+              GoRoute(
+                path: 'browse/:sector',
+                redirect: (_, state) =>
+                    CommunitySector.byName(state.pathParameters['sector']) == null ? '/player/community' : null,
+                builder: (_, state) => CommunitySearchPage(
+                  key: ValueKey(state.pathParameters['sector']),
+                  sector: CommunitySector.byName(state.pathParameters['sector']),
+                ),
+              ),
+            ],
           ),
           GoRoute(
             path: '/player/paddle',
@@ -167,6 +340,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         ],
         fullBleedTabs: const {0, 1, 2, 3, 4},
         overlay: const ResumeMatchBar(),
+        tour: true,
+        // Community opens from its card in Explore and stays in the Explore
+        // tab (docs/COMMUNITY.md §1).
+        mergeIntoPrevious: const {3},
       ),
       ...organizerRoutes(),
     ],
@@ -196,18 +373,29 @@ StatefulShellRoute _shell(
   List<GoRoute> tabs, {
   Set<int> fullBleedTabs = const {},
   Widget? overlay,
-}) =>
-    StatefulShellRoute.indexedStack(
-      builder: (_, _, navigationShell) => WorkspaceShell.stateful(
-        navigationShell: navigationShell,
-        destinations: destinations,
-        fullBleedTabs: fullBleedTabs,
-        overlay: overlay,
-      ),
-      branches: [
-        for (final tab in tabs) StatefulShellBranch(routes: [tab])
-      ],
-    );
+  bool tour = false,
+  Set<int> mergeIntoPrevious = const {},
+}) {
+  // Each tab is a branch; a route in [mergeIntoPrevious] joins the branch
+  // before it (a second root in the same tab).
+  final branches = <List<GoRoute>>[];
+  for (final (i, tab) in tabs.indexed) {
+    mergeIntoPrevious.contains(i) ? branches.last.add(tab) : branches.add([tab]);
+  }
+  assert(branches.length == destinations.length, 'one branch per tab');
+  return StatefulShellRoute.indexedStack(
+    builder: (_, _, navigationShell) => WorkspaceShell.stateful(
+      navigationShell: navigationShell,
+      destinations: destinations,
+      fullBleedTabs: fullBleedTabs,
+      overlay: overlay,
+      tour: tour,
+    ),
+    branches: [
+      for (final routes in branches) StatefulShellBranch(routes: routes)
+    ],
+  );
+}
 
 /// Shown for the moment the session is restored. Matches the native splash
 /// (logo on the dark SkorX background) so the launch reads as one piece.

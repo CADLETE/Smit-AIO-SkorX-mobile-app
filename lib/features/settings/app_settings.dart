@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../sports/core/match_rules.dart';
 import '../auth/auth_controller.dart';
 
 enum Visibility3 {
@@ -38,6 +39,8 @@ class AppSettings {
     this.level,
     this.formats = const [],
     this.photoPath,
+    this.matchRules,
+    this.matchFormat,
   });
 
   final ThemeMode themeMode;
@@ -63,6 +66,14 @@ class AppSettings {
   /// The player photo, kept on this phone until the API takes uploads.
   final String? photoPath;
 
+  /// Default rules for a new casual match (Settings › Default match
+  /// settings). Null: the sport's own default, one game.
+  final MatchRules? matchRules;
+
+  /// Default casual match type, a MatchFormat name ("singles",
+  /// "doubles", "mixed"). Null: whatever was played last.
+  final String? matchFormat;
+
   AppSettings copyWith({
     ThemeMode? themeMode,
     Map<String, bool>? notify,
@@ -76,6 +87,9 @@ class AppSettings {
     String? level,
     List<String>? formats,
     String? photoPath,
+    MatchRules? Function()? matchRules,
+    String? Function()? matchFormat,
+    bool clearPhoto = false,
   }) =>
       AppSettings(
         themeMode: themeMode ?? this.themeMode,
@@ -89,7 +103,9 @@ class AppSettings {
         homeCity: homeCity ?? this.homeCity,
         level: level ?? this.level,
         formats: formats ?? this.formats,
-        photoPath: photoPath ?? this.photoPath,
+        photoPath: clearPhoto ? null : (photoPath ?? this.photoPath),
+        matchRules: matchRules == null ? this.matchRules : matchRules(),
+        matchFormat: matchFormat == null ? this.matchFormat : matchFormat(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -105,6 +121,8 @@ class AppSettings {
         'level': level,
         'formats': formats,
         'photoPath': photoPath,
+        'matchRules': matchRules?.toJson(),
+        'matchFormat': matchFormat,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -122,6 +140,8 @@ class AppSettings {
       level: json['level'] as String?,
       formats: ((json['formats'] as List<dynamic>?) ?? const []).cast<String>(),
       photoPath: json['photoPath'] as String?,
+      matchRules: json['matchRules'] == null ? null : MatchRules.parse(json['matchRules']).rules,
+      matchFormat: json['matchFormat'] as String?,
     );
   }
 }

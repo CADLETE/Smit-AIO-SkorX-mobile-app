@@ -129,7 +129,7 @@ class _DrawPageState extends ConsumerState<DrawPage> {
                     const SizedBox(height: SkorxSpace.sm),
                     Text(
                       '$approved approved ${approved == 1 ? 'entry' : 'entries'} · ${c.drawFormat.label}. '
-                      'Seeded keeps the strongest apart by SkorX rating; random shuffles everyone but the seeds.',
+                      'Seeded keeps the strongest apart by SkorX Rating; random shuffles everyone but the seeds.',
                       style: TextStyle(color: colors.textMuted, height: 1.4),
                     ),
                     const SizedBox(height: SkorxSpace.lg),
@@ -354,7 +354,16 @@ class _BracketMatch extends StatelessWidget {
                 ),
               ),
             ),
-            if (m.games.isNotEmpty) Text(m.games.map((g) => g.of(s)).join(' '), style: SkorxType.score(14, color: colors.textMuted)),
+            // One fixed cell per game, so both slots' scores stack game by game.
+            for (final g in m.games)
+              SizedBox(
+                width: 22,
+                child: Text(
+                  '${g.of(s)}',
+                  textAlign: TextAlign.center,
+                  style: SkorxType.score(14, color: g.of(s) > g.of(s.opponent) ? colors.text : colors.textMuted),
+                ),
+              ),
           ],
         ),
       );

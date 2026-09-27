@@ -4,6 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../design/design.dart';
+import '../../../shared/format.dart';
+import '../../subscription/data/plans.dart';
+import '../../subscription/subscription_controller.dart';
+import '../../subscription/ui/pro_widgets.dart';
 import '../data/player_stats.dart';
 
 /// Where a player's full stats live.
@@ -16,7 +20,7 @@ String headToHeadPath(String a, String b) => '${playerStatsPath(a)}/vs/${Uri.enc
 /// they play, readable in a few seconds, with the way to their full stats.
 Future<void> showPlayerQuickView(BuildContext context, String nameOrId) {
   HapticFeedback.selectionClick();
-  return showSxSheet<void>(context, builder: (sheet) => PlayerQuickView(player: nameOrId, host: context));
+  return showSxSheet<void>(context, blurBackground: true, gradientBorder: true, builder: (sheet) => PlayerQuickView(player: nameOrId, host: context));
 }
 
 class PlayerQuickView extends ConsumerWidget {
@@ -75,10 +79,10 @@ class _Card extends ConsumerWidget {
             Expanded(child: Stat(value: s.winRate == null ? '—' : '${s.winRate}%', label: 'Win %', size: 30)),
             Expanded(
               child: Stat(
-                value: p.points?.toString() ?? '—',
-                label: 'SkorX Points',
+                value: p.rating == null ? '—' : ratingText(p.rating!),
+                label: 'SkorX Rating',
                 size: 30,
-                color: p.points == null ? null : c.volt,
+                color: p.rating == null ? null : c.volt,
               ),
             ),
           ],
@@ -112,25 +116,41 @@ class _Card extends ConsumerWidget {
             key: const Key('quickViewHeadToHead'),
             padding: const EdgeInsets.symmetric(horizontal: Sx.s16, vertical: Sx.s12),
             semanticLabel: 'You against ${p.name}: ${h2h.aWins} wins, ${h2h.bWins} losses. Open head-to-head',
-            onTap: () => _open(context, headToHeadPath('me', p.id)),
+            // The head-to-head in full is Rival Player Stats (Pro).
+            onTap: () => whenPro(context, ref, ProFeature.rivalStats, () => _open(context, headToHeadPath('me', p.id))),
             child: Row(
               children: [
                 Icon(Icons.compare_arrows_rounded, color: c.inkMuted, size: 20),
                 const SizedBox(width: Sx.s12),
                 Expanded(child: Text('You vs ${p.name.split(' ').first}', style: SxType.heading(c.ink, size: 15))),
                 Text('${h2h.aWins}–${h2h.bWins}', style: SxType.number(22, c.ink, weight: FontWeight.w800)),
-                Icon(Icons.chevron_right_rounded, color: c.inkFaint),
+                if (ref.watch(canAccessProvider(ProFeature.rivalStats)))
+                  Icon(Icons.chevron_right_rounded, color: c.inkFaint)
+                else ...[
+                  const SizedBox(width: Sx.s8),
+                  const ProBadge(locked: true, size: 10),
+                ],
               ],
             ),
           ),
         ],
         const SizedBox(height: Sx.s24),
-        SxButton(
-          key: const Key('viewFullStats'),
-          label: 'View full stats',
-          icon: Icons.insights_rounded,
-          onPressed: () => _open(context, playerStatsPath(p.id)),
-        ),
+        // My own full stats are free; another player's are Rival Player Stats.
+        if (p.isMe)
+          SxButton(
+            key: const Key('viewFullStats'),
+            label: 'View full stats',
+            icon: Icons.insights_rounded,
+            onPressed: () => _open(context, playerStatsPath(p.id)),
+          )
+        else
+          ProButton(
+            key: const Key('viewFullStats'),
+            feature: ProFeature.rivalStats,
+            label: 'View full stats',
+            icon: Icons.insights_rounded,
+            onPressed: () => _open(context, playerStatsPath(p.id)),
+          ),
       ],
     );
   }

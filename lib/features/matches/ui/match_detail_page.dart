@@ -6,8 +6,13 @@ import '../../../core/api/api_exception.dart';
 import '../../../design/design.dart';
 import '../../../shared/format.dart';
 import '../../rating/ui/arc_widgets.dart';
+import '../data/live_feed.dart';
 import '../data/match.dart';
 import '../data/match_repository.dart';
+import 'live_match_view.dart';
+import '../../casual_match/verification/ui/verification_widgets.dart';
+import '../../casual_match/verification/verification.dart' show MatchLifecycle;
+import '../../casual_match/verification/verification_controller.dart';
 
 /// Everything about one match, and the way back into its tournament.
 class MatchDetailPage extends ConsumerWidget {
@@ -56,97 +61,111 @@ class MatchDetailPage extends ConsumerWidget {
   }
 }
 
-class _Body extends StatelessWidget {
+class _Body extends ConsumerWidget {
   const _Body({required this.match});
 
   final Match match;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final c = context.sx;
     final m = match;
     final now = DateTime.now();
     final state = matchState(m);
     final soon = startsIn(m, now);
+    // On court now: rally by rally, when the scorer's feed is there.
+    final feed = m.isLive ? ref.watch(liveFeedProvider(m.id)).value : null;
 
     return ListView(
       padding: EdgeInsets.fromLTRB(Sx.gutter, Sx.s8, Sx.gutter, Sx.s48 + MediaQuery.paddingOf(context).bottom),
       children: [
-        // ── Header ──
-        Row(
-          children: [
-            Expanded(child: Align(alignment: Alignment.centerLeft, child: StateMark(
-              state,
-              size: 14,
-              word: switch (state) {
-                SxState.live => 'LIVE · GAME ${m.live?.number ?? ''}',
-                SxState.won => 'WON ${m.gamesWon}–${m.gamesLost}',
-                SxState.lost => 'LOST ${m.gamesWon}–${m.gamesLost}',
-                SxState.upcoming => soon ?? 'UPCOMING',
-                _ => null,
-              },
-            ))),
-            const SizedBox(width: Sx.s12),
-            if (m.ratingChange != null && m.involvesMe) RatingDelta(m.ratingChange!, size: 18),
-          ],
-        ),
-        const SizedBox(height: Sx.s16),
-        Semantics(header: true, child: Text(m.stageLabel.toUpperCase(), style: SxType.title(c.ink, size: 36))),
-        const SizedBox(height: Sx.s4),
-        if (m.tournament != null)
-          Tappable(
-            key: const Key('headerTournament'),
-            onTap: () => context.push('/player/tournament/${m.tournament!.id}'),
-            radius: 0,
-            child: Text(
-              '${m.tournament!.name} · ${m.tournament!.category}',
-              style: SxType.body(c.ink, size: 15).copyWith(decoration: TextDecoration.underline, decorationColor: c.line),
-            ),
-          ),
-        const SizedBox(height: Sx.s4),
-        Text(
-          [
-            '${dayDate(m.scheduledAt)} · ${time12(m.scheduledAt)}',
-            ?m.venue,
-            ?m.court,
-          ].join(' · '),
-          style: SxType.caption(c.inkMuted),
-        ),
-
-        if (m.isCancelled) ...[
-          const SizedBox(height: Sx.s24),
-          SxBlock(
-            child: Row(
-              children: [
-                Icon(Icons.cloud_off_outlined, color: c.inkMuted),
-                const SizedBox(width: Sx.s12),
-                Expanded(child: Text(m.cancelReason ?? 'This match was cancelled.', style: SxType.body(c.ink))),
-              ],
-            ),
-          ),
+        // A casual match from this phone that does not count yet, or does now.
+        if (m.verification case final lifecycle?) ...[
+          _VerificationBanner(matchId: m.id, lifecycle: lifecycle),
+          const SizedBox(height: Sx.s16),
         ],
-
-        // ── Score ──
-        const SizedBox(height: Sx.s32),
-        const SxSection('Score'),
-        SxBlock(padding: const EdgeInsets.all(Sx.s20), child: Scoreboard(match: m)),
-        if (m.isUpcoming) ...[
-          const SizedBox(height: Sx.s12),
+        if (feed != null)
+          LiveMatchView(summary: m, match: feed)
+        else ...[
+          // ── Header ──
+          Row(
+            children: [
+              Expanded(child: Align(alignment: Alignment.centerLeft, child: StateMark(
+                state,
+                size: 14,
+                word: switch (state) {
+                  SxState.live => 'LIVE · GAME ${m.live?.number ?? ''}',
+                  SxState.won => 'WON ${m.gamesWon}–${m.gamesLost}',
+                  SxState.lost => 'LOST ${m.gamesWon}–${m.gamesLost}',
+                  SxState.upcoming => soon ?? 'UPCOMING',
+                  _ => null,
+                },
+              ))),
+              const SizedBox(width: Sx.s12),
+              if (m.pointsEarned != null && m.involvesMe) RatingDelta(m.pointsEarned!, size: 18, digits: 2, unit: ' SXP', what: 'SkorX Points'),
+            ],
+          ),
+          const SizedBox(height: Sx.s16),
+          Semantics(header: true, child: Text(m.stageLabel.toUpperCase(), style: SxType.title(c.ink, size: 36))),
+          const SizedBox(height: Sx.s4),
+          if (m.tournament != null)
+            Tappable(
+              key: const Key('headerTournament'),
+              onTap: () => context.push('/player/tournament/${m.tournament!.id}'),
+              radius: 0,
+              child: Text(
+                '${m.tournament!.name} · ${m.tournament!.category}',
+                style: SxType.body(c.ink, size: 15).copyWith(decoration: TextDecoration.underline, decorationColor: c.line),
+              ),
+            ),
+          const SizedBox(height: Sx.s4),
           Text(
-            m.tournament != null ? 'Report to the desk 30 minutes before your match.' : 'Your court is booked. Arrive 10 minutes early.',
+            [
+              '${dayDate(m.scheduledAt)} · ${time12(m.scheduledAt)}',
+              ?m.venue,
+              ?m.court,
+            ].join(' · '),
             style: SxType.caption(c.inkMuted),
           ),
+
+          if (m.isCancelled) ...[
+            const SizedBox(height: Sx.s24),
+            SxBlock(
+              child: Row(
+                children: [
+                  Icon(Icons.cloud_off_outlined, color: c.inkMuted),
+                  const SizedBox(width: Sx.s12),
+                  Expanded(child: Text(m.cancelReason ?? 'This match was cancelled.', style: SxType.body(c.ink))),
+                ],
+              ),
+            ),
+          ],
+
+          // ── Score ──
+          const SizedBox(height: Sx.s32),
+          const SxSection('Score'),
+          SxBlock(padding: const EdgeInsets.all(Sx.s20), child: Scoreboard(match: m)),
+          if (m.isUpcoming) ...[
+            const SizedBox(height: Sx.s12),
+            Text(
+              m.tournament != null ? 'Report to the desk 30 minutes before your match.' : 'Your court is booked. Arrive 10 minutes early.',
+              style: SxType.caption(c.inkMuted),
+            ),
+          ],
         ],
 
-        // ── SkorX Points: the change and why ──
-        if (m.involvesMe && m.ratingBefore != null && m.ratingChange != null) ...[
+        // ── SkorX Rating and SkorX Points: what moved and why ──
+        if (m.involvesMe && m.pointsBefore != null && m.pointsEarned != null) ...[
           const SizedBox(height: Sx.section),
-          SxSection('SkorX Points', action: 'How it works', onAction: () => showArcExplainer(context)),
-          _RatingChange(match: m),
-          if (m.arc != null) ...[
-            const SizedBox(height: Sx.s12),
-            SxBlock(padding: const EdgeInsets.all(Sx.s20), child: ArcBreakdown(impact: m.arc!)),
-          ],
+          SxSection('Rating and Points', action: 'How it works', onAction: () => showArcExplainer(context)),
+          if (m.arc != null)
+            SxBlock(
+              key: const Key('matchImpact'),
+              padding: const EdgeInsets.all(Sx.s20),
+              child: ArcBreakdown(impact: m.arc!),
+            )
+          else
+            _RatingChange(match: m),
         ],
 
         // ── Info ──
@@ -165,7 +184,7 @@ class _Body extends StatelessWidget {
         ),
 
         // ── Timeline ──
-        if (m.isCompleted || m.isLive) ...[
+        if (m.isCompleted || (m.isLive && feed == null)) ...[
           const SizedBox(height: Sx.section),
           const SxSection('Timeline'),
           _Timeline(match: m),
@@ -181,6 +200,7 @@ class _Body extends StatelessWidget {
   }
 }
 
+/// SkorX Points before and after, for a rated match without the breakdown.
 class _RatingChange extends StatelessWidget {
   const _RatingChange({required this.match});
 
@@ -191,20 +211,20 @@ class _RatingChange extends StatelessWidget {
     final c = context.sx;
     final m = match;
     return SxBlock(
-      key: const Key('ratingChange'),
+      key: const Key('matchImpact'),
       padding: const EdgeInsets.all(Sx.s20),
       onTap: () => context.go('/player/paddle'),
-      semanticLabel: 'SkorX Points ${m.ratingBefore} to ${m.ratingAfter}',
+      semanticLabel: 'SkorX Points ${sxpText(m.pointsBefore!)} to ${sxpText(m.pointsAfter!)}',
       child: Row(
         children: [
-          Expanded(child: Stat(value: '${m.ratingBefore}', label: 'Before', color: c.inkMuted)),
+          Expanded(child: Stat(value: sxpText(m.pointsBefore!), label: 'Before', color: c.inkMuted)),
           Icon(Icons.arrow_forward_rounded, color: c.inkFaint),
           const SizedBox(width: Sx.s16),
-          Expanded(child: Stat(value: '${m.ratingAfter}', label: 'After')),
+          Expanded(child: Stat(value: sxpText(m.pointsAfter!), label: 'After')),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              RatingDelta(m.ratingChange!, size: 28),
+              RatingDelta(m.pointsEarned!, size: 28, digits: 2, unit: ' SXP', what: 'SkorX Points'),
               const SizedBox(height: 4),
               Text('CHANGE', style: SxType.label(c.inkMuted, size: 11)),
             ],
@@ -302,6 +322,45 @@ class _TournamentLink extends ConsumerWidget {
             icon: Icons.emoji_events_outlined,
             onPressed: () => context.push('/player/tournament/${t.id}'),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Where a casual match scored on this phone stands with its players, and
+/// the way to the confirmation details.
+class _VerificationBanner extends ConsumerWidget {
+  const _VerificationBanner({required this.matchId, required this.lifecycle});
+
+  final String matchId;
+  final MatchLifecycle lifecycle;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.sx;
+    final sync = ref.watch(casualSyncProvider)[matchId];
+    final v = sync?.record?.verification;
+    return SxBlock(
+      key: const Key('verificationBanner'),
+      onTap: sync?.serverId == null ? null : () => context.push('/player/match-requests/${sync!.serverId}'),
+      semanticLabel: 'Verification: ${lifecycle.label}',
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                VerificationChip(lifecycle: lifecycle),
+                const SizedBox(height: Sx.s8),
+                Text(
+                  v == null ? 'Not sent to SkorX yet. It does not count toward stats until every player confirms it.' : lifecycleExplainer(v),
+                  style: SxType.caption(c.inkMuted),
+                ),
+              ],
+            ),
+          ),
+          if (sync?.serverId != null) Icon(Icons.chevron_right_rounded, color: c.inkFaint),
         ],
       ),
     );

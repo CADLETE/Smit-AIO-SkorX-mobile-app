@@ -38,21 +38,24 @@ class Stat extends StatelessWidget {
   }
 }
 
-/// The rating over time: one line, an end dot, no grid. Draws in once.
+/// A SkorX Rating (or Points) line over time: one line, an end dot, no
+/// grid. Draws in once. [minSpan] keeps small moves from looking huge.
 class RatingGraph extends StatelessWidget {
-  const RatingGraph({super.key, required this.values, this.height = 120});
+  const RatingGraph({super.key, required this.values, this.height = 120, this.minSpan = 20, this.label = 'Rating'});
 
-  final List<int> values;
+  final List<num> values;
   final double height;
+  final double minSpan;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
     final c = context.sx;
     if (values.length < 2) return SizedBox(height: height);
-    final lo = values.reduce(math.min);
-    final hi = values.reduce(math.max);
+    final lo = values.fold<num>(values.first, math.min);
+    final hi = values.fold<num>(values.first, math.max);
     return Semantics(
-      label: 'Rating graph from ${values.first} to ${values.last}, low $lo, high $hi',
+      label: '$label graph from ${_t(values.first)} to ${_t(values.last)}, low ${_t(lo)}, high ${_t(hi)}',
       excludeSemantics: true,
       child: TweenAnimationBuilder<double>(
         tween: Tween(begin: sxReduceMotion(context) ? 1 : 0, end: 1),
@@ -60,17 +63,20 @@ class RatingGraph extends StatelessWidget {
         curve: Curves.easeOutCubic,
         builder: (_, t, _) => CustomPaint(
           size: Size(double.infinity, height),
-          painter: _GraphPainter(values, t, c.cyan, c.voltFill, c.line, c.canvas),
+          painter: _GraphPainter(values, minSpan, t, c.cyan, c.voltFill, c.line, c.canvas),
         ),
       ),
     );
   }
+
+  static String _t(num v) => v is int ? '$v' : v.toStringAsFixed(1);
 }
 
 class _GraphPainter extends CustomPainter {
-  _GraphPainter(this.values, this.t, this.ink, this.accent, this.line, this.canvasColor);
+  _GraphPainter(this.values, this.minSpan, this.t, this.ink, this.accent, this.line, this.canvasColor);
 
-  final List<int> values;
+  final List<num> values;
+  final double minSpan;
   final double t;
   final Color ink;
   final Color accent;
@@ -79,9 +85,9 @@ class _GraphPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final lo = values.reduce(math.min).toDouble();
-    final hi = values.reduce(math.max).toDouble();
-    final span = math.max(hi - lo, 20);
+    final lo = values.fold<num>(values.first, math.min).toDouble();
+    final hi = values.fold<num>(values.first, math.max).toDouble();
+    final span = math.max(hi - lo, minSpan);
     const pad = 8.0;
     Offset at(int i) => Offset(
           pad + (size.width - pad * 2) * i / (values.length - 1),
@@ -204,12 +210,40 @@ IconData achievementIcon(String key) => switch (key) {
       'crown' => Icons.workspace_premium_rounded,
       'rank' => Icons.leaderboard_rounded,
       'star' => Icons.star_rounded,
+      'scoreboard' => Icons.scoreboard_rounded,
+      'camera' => Icons.photo_camera_rounded,
+      'court' => Icons.stadium_rounded,
+      'share' => Icons.ios_share_rounded,
+      'handshake' => Icons.handshake_rounded,
+      'heart' => Icons.favorite_rounded,
+      'calendar' => Icons.event_available_rounded,
+      'rocket' => Icons.rocket_launch_rounded,
+      'diamond' => Icons.diamond_rounded,
+      'flag' => Icons.flag_rounded,
+      'comeback' => Icons.trending_up_rounded,
+      'shield' => Icons.shield_rounded,
+      'clock' => Icons.timer_rounded,
+      'sun' => Icons.wb_sunny_rounded,
+      'moon' => Icons.nights_stay_rounded,
+      'users' => Icons.groups_rounded,
+      'whistle' => Icons.sports_rounded,
+      'map' => Icons.map_rounded,
       _ => Icons.emoji_events_outlined,
     };
 
-/// An achievement coin. Tier is told by the number of rings (1 bronze to
-/// 4 elite), so it reads without colour; unlocked coins are ink with a volt
-/// centre, locked ones are an outline with a progress arc.
+/// The metal of a tier, light to dark, for coins and tier labels. The one
+/// place SkorX steps outside its brand colours: players read bronze,
+/// silver and gold at a glance. Elite is the SkorX X itself.
+List<Color> tierMetal(AchievementTier t) => switch (t) {
+      AchievementTier.bronze => const [Color(0xFFF2C39A), Color(0xFFC8844E), Color(0xFF8A5530)],
+      AchievementTier.silver => const [Color(0xFFF4F7FB), Color(0xFFB9C4D2), Color(0xFF7D8A9C)],
+      AchievementTier.gold => const [Color(0xFFFFF1A8), Color(0xFFF2C94C), Color(0xFFB8860B)],
+      AchievementTier.elite => const [Color(0xFFD4F53C), Color(0xFF4DD8F0), Color(0xFF3B6FF0)],
+    };
+
+/// An achievement coin. Tier is told by the metal and by the number of rings
+/// (1 bronze to 4 elite), so it reads without colour too; locked coins are
+/// an outline with a progress arc.
 class AchievementCoin extends StatelessWidget {
   const AchievementCoin({super.key, required this.achievement, this.size = 72});
 
@@ -221,11 +255,19 @@ class AchievementCoin extends StatelessWidget {
     final c = context.sx;
     final a = achievement;
     final rings = a.tier.index + 1;
+    final metal = tierMetal(a.tier);
     return Semantics(
       label: '${a.title}, ${a.tier.name}, ${a.unlocked ? 'unlocked' : 'locked, ${(a.progress * 100).round()} percent'}',
       excludeSemantics: true,
-      child: SizedBox.square(
-        dimension: size,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: a.unlocked
+            ? BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [BoxShadow(color: metal[1].withValues(alpha: 0.4 * c.glow), blurRadius: size * 0.3)],
+              )
+            : null,
         child: CustomPaint(
           painter: _CoinPainter(
             rings: rings,
@@ -233,14 +275,14 @@ class AchievementCoin extends StatelessWidget {
             progress: a.progress,
             ink: c.ink,
             line: c.line,
-            fill: c.voltFill,
+            metal: metal,
             surface: c.surface,
           ),
           child: Center(
             child: Icon(
               achievementIcon(a.icon),
               size: size * 0.36,
-              color: a.unlocked ? c.onVolt : c.inkFaint,
+              color: a.unlocked ? const Color(0xFF14202E) : c.inkFaint,
             ),
           ),
         ),
@@ -256,7 +298,7 @@ class _CoinPainter extends CustomPainter {
     required this.progress,
     required this.ink,
     required this.line,
-    required this.fill,
+    required this.metal,
     required this.surface,
   });
 
@@ -265,7 +307,7 @@ class _CoinPainter extends CustomPainter {
   final double progress;
   final Color ink;
   final Color line;
-  final Color fill;
+  final List<Color> metal;
   final Color surface;
 
   @override
@@ -275,39 +317,55 @@ class _CoinPainter extends CustomPainter {
     final ringPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5
-      ..color = unlocked ? ink : line;
+      ..color = unlocked ? metal[1] : line;
     for (var i = 0; i < rings; i++) {
       canvas.drawCircle(c, r - 1 - i * 4, ringPaint);
     }
     final inner = r - 1 - rings * 4 - 2;
-    canvas.drawCircle(c, inner, Paint()..color = unlocked ? fill : surface);
-    if (!unlocked) {
+    final face = Rect.fromCircle(center: c, radius: inner);
+    if (unlocked) {
+      // A struck coin: light from the top left, a bright rim.
       canvas.drawCircle(
-          c,
-          inner,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.5
-            ..color = line);
-      if (progress > 0) {
-        canvas.drawArc(
-          Rect.fromCircle(center: c, radius: inner),
-          -math.pi / 2,
-          math.pi * 2 * progress,
-          false,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 3
-            ..strokeCap = StrokeCap.round
-            ..color = ink,
-        );
-      }
+        c,
+        inner,
+        Paint()..shader = LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: metal).createShader(face),
+      );
+      canvas.drawCircle(
+        c,
+        inner - 1,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = Colors.white.withValues(alpha: 0.55),
+      );
+      return;
+    }
+    canvas.drawCircle(c, inner, Paint()..color = surface);
+    canvas.drawCircle(
+        c,
+        inner,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = line);
+    if (progress > 0) {
+      canvas.drawArc(
+        face,
+        -math.pi / 2,
+        math.pi * 2 * progress,
+        false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3
+          ..strokeCap = StrokeCap.round
+          ..color = metal[1],
+      );
     }
   }
 
   @override
   bool shouldRepaint(_CoinPainter old) =>
-      old.unlocked != unlocked || old.progress != progress || old.ink != ink || old.rings != rings;
+      old.unlocked != unlocked || old.progress != progress || old.ink != ink || old.rings != rings || old.surface != surface;
 }
 
 String tierLabel(AchievementTier t) => switch (t) {

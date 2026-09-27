@@ -25,6 +25,10 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 /// build (fast start-up, as users get it, without a server).
 const _useRealAuth = bool.fromEnvironment('REAL_AUTH') || (!kDebugMode && !bool.fromEnvironment('DEV_AUTH'));
 
+/// Whether this build signs in (and so bills) against the real API. Other
+/// server-backed features that have a stand-in follow the same switch.
+const useRealApi = _useRealAuth;
+
 final authRepositoryProvider = Provider<AuthRepository>(
   (ref) => _useRealAuth
       ? ApiAuthRepository(

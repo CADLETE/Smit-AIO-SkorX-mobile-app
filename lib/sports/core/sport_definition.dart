@@ -59,6 +59,7 @@ class SportDefinition {
     if (!scoringSystems.contains(rules.scoring)) {
       return '$name does not use ${rules.scoring == ScoringSystem.sideOut ? 'side-out' : 'rally'} scoring.';
     }
+    if (!bestOfOptions.contains(rules.bestOf)) return 'Matches are one game or best of 3.';
     return null;
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/sync/connectivity.dart';
 import '../../../design/design.dart';
 import '../../auth/auth_controller.dart';
 import '../../player/data/x_code.dart';
@@ -225,6 +226,15 @@ class _PlayerPickerState extends ConsumerState<_PlayerPicker> {
                   for (final p in starred) _PlayerRow(player: p, taken: widget.taken.contains(p.id)),
                 const SizedBox(height: Sx.s16),
                 _Header(icon: Icons.groups_rounded, text: 'SKORX PLAYERS', color: c.cyan),
+                if (ref.watch(connectivityProvider) == NetStatus.offline)
+                  Padding(
+                    key: const Key('pickerOffline'),
+                    padding: const EdgeInsets.only(bottom: Sx.s8),
+                    child: Text(
+                      'Offline · showing players saved on this phone. Anyone else can be added as a guest and linked later.',
+                      style: SxType.caption(c.caution),
+                    ),
+                  ),
                 ...search.when(
                   loading: () => [const Padding(padding: EdgeInsets.all(Sx.s16), child: Center(child: BallLoader()))],
                   error: (_, _) => [Text('Search is not available right now.', style: SxType.caption(c.inkMuted))],

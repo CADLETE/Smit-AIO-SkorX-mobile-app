@@ -1,8 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/api/api_exception.dart';
 import '../../core/sample_persona.dart';
@@ -10,14 +14,19 @@ import '../../design/design.dart';
 import '../../shared/format.dart';
 import '../auth/auth_controller.dart';
 import '../auth/data/auth_repository.dart';
+import '../community/ui/community_rows.dart';
 import '../matches/data/match_repository.dart';
+import '../onboarding/app_tour.dart';
 import '../onboarding/onboarding_controller.dart';
 import '../player/data/player_repository.dart';
 import '../player/player_pages.dart';
 import '../settings/app_settings.dart';
-import '../workspace/workspace.dart';
-import '../workspace/workspace_controller.dart';
-import '../workspace/workspace_switcher.dart';
+import '../subscription/data/plans.dart';
+import '../subscription/subscription_controller.dart';
+import '../subscription/ui/plan_card.dart';
+import '../subscription/ui/pro_widgets.dart';
+import '../settings/match_defaults_sheet.dart';
+import '../workspace/mode_switch.dart';
 
 /// Who am I, and how do I control my account? Performance lives in My
 /// Paddle; the ID card links there.
@@ -42,12 +51,29 @@ class ProfilePage extends ConsumerWidget {
       ),
       children: [
         const _IdCard(),
-        const _ModeCard(),
+        const Padding(padding: EdgeInsets.only(top: Sx.s12), child: ModeSwitch()),
+        const SizedBox(height: Sx.section),
+        const YourPlanCard(),
+        const SizedBox(height: Sx.section),
+        const CommunityRows(),
         const SizedBox(height: Sx.section),
         SxRows(
           title: 'Account',
           children: [
             SxRow(icon: Icons.edit_outlined, label: 'Edit profile', onTap: () => context.push('/player/edit-profile')),
+            SxRow(
+              key: const Key('subscriptionRow'),
+              icon: Icons.bolt_rounded,
+              label: 'Subscription',
+              value: ref.watch(isProProvider) ? 'Pro' : 'Free',
+              onTap: () => context.push('/player/subscription'),
+            ),
+            SxRow(
+              key: const Key('billingRow'),
+              icon: Icons.receipt_long_outlined,
+              label: 'Billing & payments',
+              onTap: () => context.push('/player/billing'),
+            ),
             SxRow(icon: Icons.calendar_month_outlined, label: 'My bookings', onTap: () => context.push('/player/bookings')),
             SxRow(icon: Icons.emoji_events_outlined, label: 'My tournaments', onTap: () => context.push('/player/tournaments/mine')),
             SxRow(icon: Icons.notifications_none_rounded, label: 'Notifications', onTap: () => context.push('/player/notifications')),
@@ -115,11 +141,14 @@ class _IdCard extends ConsumerWidget {
     final format = ref.watch(playerRecordProvider).value?.preferredFormat ?? PlayCategory.doubles;
     final city = o?.rankings.where((r) => r.scope == RankScope.city && r.category == format).firstOrNull;
     final hand = ref.watch(appSettingsProvider.select((s) => s.hand));
+    final pro = ref.watch(isProProvider);
+    // A city rank is a Local Ranking: Pro only.
+    final rankShown = ref.watch(canAccessProvider(ProFeature.localRanking));
     const fg = Colors.white;
     final muted = Colors.white.withValues(alpha: 0.72);
     return Semantics(
       button: true,
-      label: '${user.name}, SkorX Points ${o?.rating ?? 'none yet'}. Open My Paddle',
+      label: '${user.name}, SkorX Rating ${o?.rating == null ? 'none yet' : ratingText(o!.rating!)}${user.xCode == null ? '' : ', X code ${user.xCode}'}. Open My Paddle',
       excludeSemantics: true,
       child: Tappable(
         key: const Key('idCard'),
@@ -138,16 +167,18 @@ class _IdCard extends ConsumerWidget {
               const SizedBox(height: Sx.s20),
               Row(
                 children: [
-                  SxAvatar(name: user.name, size: 64, ring: true),
+                  PlayerDp(name: user.name, size: 64, edge: c.voltFill),
                   const SizedBox(width: Sx.s16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(user.name.toUpperCase(), maxLines: 2, style: SxType.title(fg, size: 26)),
+                        // Pro sits with the name, clear of the card's ball in the corner.
+                        if (pro) const Padding(padding: EdgeInsets.only(top: 4, bottom: 2), child: ProBadge(key: Key('idCardPro'), size: 11)),
                         const SizedBox(height: 2),
                         Text(
-                          [o?.level ?? 'New player', if (hand != null) '$hand-handed', if (user.phone != null) formatPhone(user.phone!)].join(' · '),
+                          [o?.arc?.band.label ?? 'New player', if (hand != null) '$hand-handed', if (user.phone != null) formatPhone(user.phone!)].join(' · '),
                           style: SxType.caption(muted),
                         ),
                       ],
@@ -161,9 +192,17 @@ class _IdCard extends ConsumerWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Expanded(child: _cardStat(o?.rating?.toString() ?? '—', 'Rating', fg, muted)),
+                  Expanded(child: _cardStat(o?.rating == null ? '—' : ratingText(o!.rating!), 'SkorX Rating', fg, muted)),
                   const SizedBox(width: Sx.s8),
-                  Expanded(child: _cardStat(city == null ? '—' : '#${city.rank}', city == null ? 'City rank' : '${city.place} rank', fg, muted)),
+                  Expanded(
+                    child: rankShown
+                        ? _cardStat(city == null ? '—' : '#${city.rank}', city == null ? 'City rank' : '${city.place} rank', fg, muted)
+                        : _lockedStat('City rank', fg, muted),
+                  ),
+                  if (user.xCode != null) ...[
+                    const SizedBox(width: Sx.s8),
+                    _XCodeBox(code: user.xCode!),
+                  ],
                 ],
               ),
             ],
@@ -172,6 +211,23 @@ class _IdCard extends ConsumerWidget {
       ),
     );
   }
+
+  static Widget _lockedStat(String l, Color fg, Color muted) => Column(
+        key: const Key('idCardRankLocked'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            height: 29,
+            child: Row(children: [
+              Icon(Icons.lock_outline_rounded, color: muted, size: 18),
+              const SizedBox(width: 6),
+              const ProBadge(size: 10),
+            ]),
+          ),
+          const SizedBox(height: 2),
+          Text(l.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis, style: SxType.label(muted, size: 10.5)),
+        ],
+      );
 
   static Widget _cardStat(String v, String l, Color fg, Color muted) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -183,57 +239,29 @@ class _IdCard extends ConsumerWidget {
       );
 }
 
-/// Player ⇄ Organiser: one account, two modes. Only for people who run
-/// tournaments.
-class _ModeCard extends ConsumerWidget {
-  const _ModeCard();
+/// The player's X code, highlighted on the ID card: the code they read out
+/// to be found or added to a match.
+class _XCodeBox extends StatelessWidget {
+  const _XCodeBox({required this.code});
+
+  final String code;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final c = context.sx;
-    final available = ref.watch(workspaceControllerProvider.select((s) => s.available));
-    final others = available.where((w) => w is! PlayerWorkspace).toList();
-    if (others.isEmpty) return const SizedBox.shrink();
-    final organiser = others.whereType<OrganizerWorkspace>().toList();
-    final target = organiser.length == 1 && others.length == 1 ? organiser.first.title : null;
-    return Padding(
-      padding: const EdgeInsets.only(top: Sx.s16),
-      child: SxBlock(
-        padding: const EdgeInsets.all(Sx.s20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      key: const Key('xCodeBox'),
+      padding: const EdgeInsets.symmetric(horizontal: Sx.s16, vertical: Sx.s8),
+      decoration: BoxDecoration(color: c.voltFill, borderRadius: BorderRadius.circular(Sx.s8)),
+      child: Text.rich(
+        TextSpan(
           children: [
-            Row(
-              children: [
-                Text('CURRENT MODE', style: SxType.label(c.inkMuted, size: 12)),
-                const Spacer(),
-                Container(width: 8, height: 8, decoration: BoxDecoration(color: c.voltFill, shape: BoxShape.circle)),
-                const SizedBox(width: Sx.s8),
-                Text('PLAYER', style: SxType.label(c.ink, size: 14)),
-              ],
-            ),
-            const SizedBox(height: Sx.s12),
-            Text(
-              target == null
-                  ? 'You also run tournaments. Switch to manage them; your player account stays the same.'
-                  : 'You also run tournaments with $target. Switch to manage them; your player account stays the same.',
-              style: SxType.caption(c.inkMuted, size: 13.5),
-            ),
-            const SizedBox(height: Sx.s16),
-            SxButton.secondary(
-              key: const Key('switchModeCard'),
-              label: organiser.isEmpty ? 'Switch mode' : 'Switch to Organiser',
-              icon: Icons.swap_horiz_rounded,
-              onPressed: () async {
-                if (others.length == 1) {
-                  await switchWorkspace(context, others.first);
-                } else {
-                  await showWorkspaceSwitcher(context);
-                }
-              },
-            ),
+            // The "X·" in deep olive, so the code itself stands apart.
+            TextSpan(text: 'X·', style: SxType.number(22, const Color(0xFF4A6B00), weight: FontWeight.w900)),
+            TextSpan(text: code),
           ],
         ),
+        style: SxType.number(22, c.onVolt, weight: FontWeight.w800),
       ),
     );
   }
@@ -291,7 +319,16 @@ class SettingsPage extends ConsumerWidget {
                       SxRow(label: 'Edit profile', onTap: () => context.push('/player/edit-profile')),
                       SxRow(label: 'Phone', value: user?.phone == null ? '—' : formatPhone(user!.phone!)),
                       SxRow(label: 'Email', value: user?.email ?? 'Not added'),
-                      const SxRow(label: 'Password', value: 'Not needed', subtitle: 'You sign in with a code on WhatsApp'),
+                    ]),
+                    const SizedBox(height: Sx.section),
+                    SxRows(title: 'Scoring', children: [
+                      SxRow(
+                        key: const Key('matchDefaults'),
+                        icon: Icons.tune_rounded,
+                        label: 'Default match settings',
+                        subtitle: describeMatchDefaults(s),
+                        onTap: () => showSxSheet<void>(context, builder: (_) => const MatchDefaultsSheet()),
+                      ),
                     ]),
                     const SizedBox(height: Sx.section),
                     const SxSection('App'),
@@ -344,6 +381,15 @@ class SettingsPage extends ConsumerWidget {
                     ]),
                     const SizedBox(height: Sx.section),
                     SxRows(title: 'Support', children: [
+                      SxRow(
+                        key: const Key('replayTour'),
+                        label: 'Take the app tour',
+                        subtitle: 'A one-minute walk through SkorX',
+                        onTap: () {
+                          ref.read(appTourProvider.notifier).start();
+                          context.go('/player/home');
+                        },
+                      ),
                       SxRow(label: 'Help', onTap: () => _help(context)),
                       SxRow(label: 'Contact us', value: 'help@skorx.app'),
                       SxRow(label: 'Report a problem', onTap: () => _help(context)),
@@ -457,6 +503,72 @@ class _DeveloperSection extends ConsumerWidget {
   }
 }
 
+/// The player's picture, big, with a camera badge: tap to change it.
+class _PhotoEditor extends ConsumerWidget {
+  const _PhotoEditor({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.sx;
+    final hasPhoto = ref.watch(appSettingsProvider.select((s) => s.photoPath != null));
+    return Center(
+      child: Semantics(
+        button: true,
+        label: hasPhoto ? 'Change profile photo' : 'Add profile photo',
+        excludeSemantics: true,
+        child: Tappable(
+          key: const Key('changePhoto'),
+          onTap: onTap,
+          radius: 60,
+          child: Column(
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: c.brand,
+                      boxShadow: c.glowOf(c.voltFill, strength: 0.7),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(shape: BoxShape.circle, color: c.canvas),
+                      child: const PlayerDp(name: 'You', size: 108),
+                    ),
+                  ),
+                  Positioned(
+                    right: 0,
+                    bottom: 4,
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: c.cool,
+                        border: Border.all(color: c.canvas, width: 3),
+                      ),
+                      child: const Icon(Icons.photo_camera_rounded, size: 17, color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: Sx.s12),
+              Text(
+                hasPhoto ? 'Change photo' : 'Add a photo',
+                style: SxType.caption(c.isDark ? c.cyan : c.blue, size: 13.5).copyWith(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Player details go to the server (`PATCH /me/profile`); hand and playing
 /// style stay on the phone until the API has fields for them.
 class EditProfilePage extends ConsumerStatefulWidget {
@@ -498,6 +610,75 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       helpText: 'Date of birth',
     );
     if (picked != null) setState(() => _dateOfBirth = picked);
+  }
+
+  /// Camera, gallery or remove. The photo is saved straight away: it lives
+  /// on this phone until the API takes uploads, so there is nothing to wait
+  /// for.
+  Future<void> _changePhoto() async {
+    final hasPhoto = ref.read(appSettingsProvider).photoPath != null;
+    final choice = await showSxSheet<String>(
+      context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(Sx.gutter, 0, Sx.gutter, Sx.s24),
+        child: SxRows(
+          title: 'Profile photo',
+          children: [
+            SxRow(
+              key: const Key('photoCamera'),
+              icon: Icons.photo_camera_outlined,
+              label: 'Take a photo',
+              onTap: () => Navigator.pop(ctx, 'camera'),
+            ),
+            SxRow(
+              key: const Key('photoGallery'),
+              icon: Icons.photo_library_outlined,
+              label: 'Choose from gallery',
+              onTap: () => Navigator.pop(ctx, 'gallery'),
+            ),
+            if (hasPhoto)
+              SxRow(
+                key: const Key('photoRemove'),
+                icon: Icons.delete_outline_rounded,
+                label: 'Remove photo',
+                danger: true,
+                onTap: () => Navigator.pop(ctx, 'remove'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    final settings = ref.read(appSettingsProvider.notifier);
+    final previous = ref.read(appSettingsProvider).photoPath;
+    if (choice == 'remove') {
+      settings.update((s) => s.copyWith(clearPhoto: true));
+      if (previous != null) File(previous).delete().ignore();
+      return;
+    }
+    final source = choice == 'camera' ? ImageSource.camera : ImageSource.gallery;
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: source,
+        maxWidth: 900,
+        imageQuality: 85,
+        preferredCameraDevice: CameraDevice.front,
+      );
+      if (picked == null) return;
+      // The picker's file lives in a cache the system may clear.
+      final dir = await getApplicationDocumentsDirectory();
+      final saved = await File(picked.path).copy('${dir.path}/player_photo_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      settings.update((s) => s.copyWith(photoPath: saved.path));
+      if (previous != null) File(previous).delete().ignore();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile photo updated')));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(source == ImageSource.camera ? "Couldn't open the camera." : "Couldn't open your photos."),
+        ),
+      );
+    }
   }
 
   Future<void> _save() async {
@@ -543,6 +724,8 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(Sx.gutter, Sx.s8, Sx.gutter, Sx.s24),
                   children: [
+                    _PhotoEditor(onTap: _changePhoto),
+                    const SizedBox(height: Sx.s24),
                     const SxSection('Name'),
                     TextField(
                       key: const Key('editName'),

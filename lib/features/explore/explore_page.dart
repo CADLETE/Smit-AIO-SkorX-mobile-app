@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../design/design.dart';
 import '../../shared/format.dart';
 import '../courts/data/courts.dart';
+import '../courts/ui/venue_art.dart';
 import '../matches/data/match_feed.dart';
 import '../matches/ui/filter_widgets.dart';
 import '../player/data/player_repository.dart';
@@ -16,20 +17,30 @@ import '../player/ui/player_quick_view.dart';
 import '../tournaments/data/tournaments.dart';
 import '../tournaments/ui/tournament_banner.dart';
 
-enum ExploreView { tournaments, courts, players }
+enum ExploreView {
+  tournaments('Tournaments'),
+  courts('Courts'),
+  players('Players');
 
-/// Discovery: where can I play, and who with? Tournaments to enter, courts
-/// to book, players to find.
-class ExplorePage extends ConsumerStatefulWidget {
-  const ExplorePage({super.key, this.view});
-
-  final String? view;
-
-  @override
-  ConsumerState<ExplorePage> createState() => _ExplorePageState();
+  const ExploreView(this.title);
+  final String title;
 }
 
-class _ExplorePageState extends ConsumerState<ExplorePage> {
+/// Tournaments to enter, courts to book, players to find: the modules the
+/// Explore hub opens. With [tabs], one screen switches between all three
+/// (the guest preview); without, it is locked to [view] under its own title,
+/// with a way back to the hub.
+class ExploreBrowser extends ConsumerStatefulWidget {
+  const ExploreBrowser({super.key, this.view, this.tabs = true});
+
+  final String? view;
+  final bool tabs;
+
+  @override
+  ConsumerState<ExploreBrowser> createState() => _ExploreBrowserState();
+}
+
+class _ExploreBrowserState extends ConsumerState<ExploreBrowser> {
   late ExploreView _view = ExploreView.values.asNameMap()[widget.view] ?? ExploreView.tournaments;
   final _search = TextEditingController();
   Timer? _debounce;
@@ -37,7 +48,7 @@ class _ExplorePageState extends ConsumerState<ExplorePage> {
   String _playerQuery = '';
 
   @override
-  void didUpdateWidget(ExplorePage old) {
+  void didUpdateWidget(ExploreBrowser old) {
     super.didUpdateWidget(old);
     final v = ExploreView.values.asNameMap()[widget.view];
     if (old.view != widget.view && v != null) _view = v;
@@ -79,7 +90,18 @@ class _ExplorePageState extends ConsumerState<ExplorePage> {
       },
       header: Column(
         children: [
-          const SxTitleBar(title: 'Explore'),
+          if (widget.tabs)
+            const SxTitleBar(title: 'Explore')
+          else
+            SxTitleBar(
+              title: _view.title,
+              leading: SxIconAction(
+                key: const Key('exploreBack'),
+                icon: Icons.arrow_back_rounded,
+                label: 'Back to Explore',
+                onTap: () => context.canPop() ? context.pop() : context.go('/player/explore'),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(Sx.gutter, 0, Sx.gutter, Sx.s12),
             child: TextField(
@@ -110,19 +132,16 @@ class _ExplorePageState extends ConsumerState<ExplorePage> {
               ),
             ),
           ),
-          SxTabs<ExploreView>(
-            tabs: const [
-              (ExploreView.tournaments, 'Tournaments', null),
-              (ExploreView.courts, 'Courts', null),
-              (ExploreView.players, 'Players', null),
-            ],
-            selected: _view,
-            onSelect: (v) {
-              setState(() => _view = v);
-              _search.clear();
-              _onSearch('');
-            },
-          ),
+          if (widget.tabs)
+            SxTabs<ExploreView>(
+              tabs: [for (final v in ExploreView.values) (v, v.title, null)],
+              selected: _view,
+              onSelect: (v) {
+                setState(() => _view = v);
+                _search.clear();
+                _onSearch('');
+              },
+            ),
         ],
       ),
       children: [
@@ -430,7 +449,33 @@ class _CourtsView extends ConsumerWidget {
           selected: search.date,
           onSelect: (d) => ref.read(courtSearchProvider.notifier).setDate(d),
         ),
-        const SizedBox(height: Sx.s24),
+        const SizedBox(height: Sx.s12),
+        // 3 · Time of day
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          clipBehavior: Clip.none,
+          child: Row(
+            children: [
+              for (final p in PartOfDay.values)
+                Padding(
+                  padding: const EdgeInsets.only(right: Sx.s8),
+                  child: SxChip(
+                    key: Key('part-${p.name}'),
+                    label: p.label,
+                    icon: switch (p) {
+                      PartOfDay.any => Icons.schedule_rounded,
+                      PartOfDay.morning => Icons.wb_twilight_rounded,
+                      PartOfDay.afternoon => Icons.wb_sunny_outlined,
+                      PartOfDay.evening => Icons.nights_stay_outlined,
+                    },
+                    selected: search.part == p,
+                    onTap: () => ref.read(courtSearchProvider.notifier).setPart(p),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: Sx.s20),
         switch (results) {
           AsyncData(:final value) => () {
               final list = value.where((v) => query.isEmpty || v.venue.name.toLowerCase().contains(query)).toList();
@@ -444,16 +489,16 @@ class _CourtsView extends ConsumerWidget {
               }
               return Column(
                 children: [
-                  for (final v in list)
+                  for (final (i, v) in list.indexed)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: Sx.s12),
-                      child: _VenueCard(availability: v, date: search.date),
+                      padding: const EdgeInsets.only(bottom: Sx.s16),
+                      child: SxReveal(index: i, child: _VenueCard(availability: v, date: search.date)),
                     ),
                 ],
               );
             }(),
           AsyncError() => ErrorBlock(message: 'Courts did not load.', onRetry: () => ref.invalidate(venueSearchProvider(search))),
-          _ => const SkeletonList(rows: 3, rowHeight: 110),
+          _ => const SkeletonList(rows: 3, rowHeight: 250),
         },
       ],
     );
@@ -516,6 +561,9 @@ class DateStrip extends StatelessWidget {
   }
 }
 
+/// A venue in the results: its banner, the facts that decide it, and the
+/// next free times. Tapping a time opens the venue with that time and a
+/// free court already picked, one tap from booking.
 class _VenueCard extends StatelessWidget {
   const _VenueCard({required this.availability, required this.date});
 
@@ -529,63 +577,133 @@ class _VenueCard extends StatelessWidget {
     final free = availability.freeSlots;
     void open([int? hour]) =>
         context.push('/player/venue/${v.id}?date=${isoDay(date)}${hour == null ? '' : '&hour=$hour'}');
+    Widget chip(IconData icon, String label, {bool accent = false}) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: accent ? c.voltFill : Colors.black.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 13, color: accent ? c.onVolt : Colors.white),
+              const SizedBox(width: 4),
+              Text(label, style: SxType.caption(accent ? c.onVolt : Colors.white, size: 11.5).copyWith(fontWeight: FontWeight.w700)),
+            ],
+          ),
+        );
     return SxBlock(
       onTap: open,
       semanticLabel: '${v.name}, ${v.area}, ${free.length} times free',
-      padding: const EdgeInsets.all(Sx.s16),
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
+          Padding(
+            padding: const EdgeInsets.all(6),
+            child: VenueBanner(
+              venue: v,
+              height: 148,
+              radius: Sx.radiusLg - 6,
+              child: Stack(
+                children: [
+                  Positioned(
+                    top: 10,
+                    left: 10,
+                    child: chip(Icons.star_rounded, v.rating.toStringAsFixed(1), accent: true),
+                  ),
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: chip(v.indoor ? Icons.roofing_rounded : Icons.wb_sunny_outlined, v.indoor ? 'Indoor' : 'Outdoor'),
+                  ),
+                  Positioned(
+                    left: 12,
+                    bottom: 10,
+                    child: chip(Icons.near_me_rounded, '${v.distanceKm.toStringAsFixed(1)} km'),
+                  ),
+                  Positioned(
+                    right: 12,
+                    bottom: 10,
+                    child: chip(Icons.grid_view_rounded, '${v.courts} courts'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Sx.s16, Sx.s8, Sx.s16, Sx.s16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(v.name, style: SxType.heading(c.ink, size: 17)),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${v.area} · ${v.distanceKm.toStringAsFixed(1)} km · ${v.courts} courts · ${v.indoor ? 'Indoor' : 'Outdoor'}',
-                      style: SxType.caption(c.inkMuted),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(v.name, style: SxType.heading(c.ink, size: 18).copyWith(fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 2),
+                          Text('${v.area} · ${v.reviews} reviews', style: SxType.caption(c.inkMuted)),
+                        ],
+                      ),
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(formatInr(v.pricePerHour), style: SxType.number(20, c.ink, weight: FontWeight.w800)),
+                        Text('PER HOUR', style: SxType.label(c.inkMuted, size: 9.5)),
+                      ],
                     ),
                   ],
                 ),
-              ),
-              Text('${formatInr(v.pricePerHour)}/h', style: SxType.heading(c.ink, size: 14)),
-            ],
-          ),
-          const SizedBox(height: Sx.s12),
-          if (free.isEmpty)
-            Text(
-              daysBetween(DateTime.now(), date) == 0 ? 'No more slots today · try tomorrow' : 'Fully booked on this day',
-              style: SxType.caption(c.inkFaint),
-            )
-          else
-            Wrap(
-              spacing: Sx.s8,
-              runSpacing: Sx.s8,
-              children: [
-                for (final s in free.take(4))
-                  Tappable(
-                    onTap: () => open(s.start.hour),
-                    radius: Sx.radiusSm,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: Sx.s12, vertical: Sx.s8),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(Sx.radiusSm),
-                        border: Border.all(color: c.line),
-                      ),
-                      child: Text(timeShort(s.start), style: SxType.number(15, c.ink)),
+                const SizedBox(height: Sx.s12),
+                if (free.isEmpty)
+                  Text(
+                    daysBetween(DateTime.now(), date) == 0 ? 'No more slots today · try tomorrow' : 'Fully booked on this day',
+                    style: SxType.caption(c.inkFaint),
+                  )
+                else ...[
+                  Text('TAP A TIME TO BOOK', style: SxType.label(c.inkMuted, size: 10.5)),
+                  const SizedBox(height: Sx.s8),
+                  SizedBox(
+                    height: 38,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        for (final s in free.take(8))
+                          Padding(
+                            padding: const EdgeInsets.only(right: Sx.s8),
+                            child: Semantics(
+                              button: true,
+                              label: 'Book ${timeShort(s.start)}',
+                              excludeSemantics: true,
+                              child: Tappable(
+                                onTap: () => open(s.start.hour),
+                                radius: Sx.radiusSm,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: Sx.s12),
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: c.voltFill.withValues(alpha: c.isDark ? 0.12 : 0.22),
+                                    borderRadius: BorderRadius.circular(Sx.radiusSm),
+                                    border: Border.all(color: c.voltFill.withValues(alpha: 0.55)),
+                                  ),
+                                  child: Text(timeShort(s.start), style: SxType.number(16, c.ink, weight: FontWeight.w800)),
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (free.length > 8)
+                          Center(child: Text('+${free.length - 8} more', style: SxType.caption(c.inkMuted))),
+                      ],
                     ),
                   ),
-                if (free.length > 4)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: Sx.s8),
-                    child: Text('+${free.length - 4} more', style: SxType.caption(c.inkMuted)),
-                  ),
+                ],
               ],
             ),
+          ),
         ],
       ),
     );
@@ -704,7 +822,7 @@ class _PlayerFilterSheet extends ConsumerWidget {
                   onTap: () => ctl.update((f) => f.copyWith(city: () => city)),
                 ),
             ]),
-            group('Level', [
+            group('Skill band', [
               for (final l in playerLevels)
                 SxChip(
                   label: l,
@@ -718,14 +836,6 @@ class _PlayerFilterSheet extends ConsumerWidget {
                   label: p.label,
                   selected: f.formats.contains(p),
                   onTap: () => ctl.update((f) => f.copyWith(formats: _TournamentsView._toggle(f.formats, p))),
-                ),
-            ]),
-            group('SkorX Points', [
-              for (final r in const [null, 300, 500, 700, 900])
-                SxChip(
-                  label: r == null ? 'Any' : '$r+',
-                  selected: f.minRating == r,
-                  onTap: () => ctl.update((f) => f.copyWith(minRating: () => r)),
                 ),
             ]),
             group('Sort by', [
@@ -758,7 +868,7 @@ class _PlayerCard extends StatelessWidget {
     return SxBlock(
       key: Key('player-${p.playerId}'),
       padding: const EdgeInsets.symmetric(horizontal: Sx.s16, vertical: Sx.s12),
-      semanticLabel: '${p.name}, ${p.city}, ${p.level}${p.rating == null ? '' : ', rating ${p.rating}'}',
+      semanticLabel: '${p.name}, ${p.city}, ${p.level}${p.rating == null ? '' : ', SkorX Rating ${ratingText(p.rating!)}'}',
       onTap: () => showPlayerQuickView(context, p.name),
       child: Row(
         children: [
@@ -777,7 +887,7 @@ class _PlayerCard extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(p.rating?.toString() ?? '—', style: SxType.number(18, c.ink, weight: FontWeight.w800)),
+              Text(p.rating == null ? '—' : ratingText(p.rating!), style: SxType.number(18, c.ink, weight: FontWeight.w800)),
               Text('RATING', style: SxType.label(c.inkFaint, size: 9.5)),
             ],
           ),

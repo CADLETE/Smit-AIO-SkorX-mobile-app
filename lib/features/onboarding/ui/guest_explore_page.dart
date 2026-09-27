@@ -45,7 +45,7 @@ class GuestExplorePage extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: MediaQuery.removePadding(context: context, removeTop: true, child: const ExplorePage()),
+            child: MediaQuery.removePadding(context: context, removeTop: true, child: const ExploreBrowser()),
           ),
           SafeArea(
             top: false,

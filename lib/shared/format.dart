@@ -25,6 +25,14 @@ String formatInr(int rupees, {bool freeWhenZero = true}) {
   return '${rupees < 0 ? '−' : ''}₹$grouped';
 }
 
+/// Paise as rupees: ₹999 for whole rupees, ₹1,178.82 otherwise. Zero is ₹0.
+String formatPaise(int paise) {
+  final rupees = formatInr(paise.abs() ~/ 100, freeWhenZero: false);
+  final fraction = paise.abs() % 100;
+  final text = fraction == 0 ? rupees : '$rupees.${fraction.toString().padLeft(2, '0')}';
+  return paise < 0 ? '−$text' : text;
+}
+
 /// "7:30 PM".
 String time12(DateTime t) {
   final hour = t.hour % 12 == 0 ? 12 : t.hour % 12;
@@ -77,6 +85,9 @@ String timeAgo(DateTime t, DateTime now) {
 /// "+18" / "−12" / "0", with a real minus sign.
 String signed(int value) => value > 0 ? '+$value' : value < 0 ? '−${value.abs()}' : '0';
 
+/// "42.6", a SkorX Rating (0–100) as players see it.
+String ratingText(double rating) => rating.toStringAsFixed(1);
+
 /// Initials for an avatar: "Smit Ramani" → "SR".
 String initials(String name) {
   final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
@@ -94,3 +105,19 @@ String formatPhone(String phone) {
 /// "2026-09-26".
 String isoDay(DateTime d) =>
     '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+/// SkorX Points to 2 decimals with thousands grouped: "684.75", "1,842.30".
+String sxpText(num sxp) {
+  final hundredths = (sxp * 100).round();
+  final whole = (hundredths.abs() ~/ 100).toString();
+  final grouped = whole.replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
+  final text = '$grouped.${(hundredths.abs() % 100).toString().padLeft(2, '0')}';
+  return hundredths < 0 ? '−$text' : text;
+}
+
+/// A signed SkorX Points change: "+0.28", "−1.10", "0.00".
+String sxpDeltaText(num sxp) {
+  final text = sxpText(sxp.abs());
+  final hundredths = (sxp * 100).round();
+  return hundredths > 0 ? '+$text' : hundredths < 0 ? '−$text' : text;
+}

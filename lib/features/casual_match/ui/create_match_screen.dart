@@ -10,6 +10,7 @@ import '../../../sports/core/score_state.dart';
 import '../../../sports/core/sport_definition.dart';
 import '../../../sports/sport_registry.dart';
 import '../../auth/auth_controller.dart';
+import '../../settings/app_settings.dart';
 import '../data/match_setup.dart';
 import '../scoring_controller.dart';
 import 'court_top_view.dart';
@@ -75,8 +76,15 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
   void initState() {
     super.initState();
     _sport = ref.read(playableSportsProvider).first;
-    // A single game is the casual default; best of 3 and 5 are one tap away.
-    _rules = _sport.defaultRules.copyWith(bestOf: 1);
+    // The player's own defaults (Settings › Default match settings) win;
+    // otherwise a single game, with best of 3 one tap away.
+    final defaults = ref.read(appSettingsProvider);
+    final preferred = defaults.matchRules;
+    _rules = preferred != null && _sport.rulesProblem(preferred) == null
+        ? preferred
+        : _sport.defaultRules.copyWith(bestOf: 1);
+    final preferredFormat = MatchFormat.values.asNameMap()[defaults.matchFormat];
+    if (preferredFormat != null) _format = preferredFormat;
     final initial = widget.initialCategoryId == null ? null : parseCategoryId(widget.initialCategoryId!);
     if (initial != null) {
       _format = initial.$1;
@@ -91,15 +99,16 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
     await ref.read(matchSetupMemoryProvider.notifier).ready;
     final m = ref.read(matchSetupMemoryProvider);
     if (!mounted || _touched) return;
+    final defaults = ref.read(appSettingsProvider);
     setState(() {
-      if (widget.initialCategoryId == null) {
+      if (widget.initialCategoryId == null && defaults.matchFormat == null) {
         _format = m.format ?? _format;
         final division = m.division;
         _division = division != null && Division.forFormat(_format).contains(division) ? division : null;
         _resizeTeams();
       }
       final rules = m.rules;
-      if (rules != null && _sport.rulesProblem(rules) == null) _rules = rules;
+      if (defaults.matchRules == null && rules != null && _sport.rulesProblem(rules) == null) _rules = rules;
       if (m.court != null) _court.text = m.court!;
       if (m.venue != null) _venue.text = m.venue!;
       final s = m.stream;
@@ -598,6 +607,38 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Only SkorX players can confirm a match; a guest keeps it off
+              // everyone's stats and rating (docs/CASUAL-VERIFICATION.md).
+              if ([..._a, ..._b].any((p) => p?.isGuest ?? false)) ...[
+                Row(
+                  key: const Key('guestNotice'),
+                  children: [
+                    Icon(Icons.person_off_outlined, size: 16, color: c.caution),
+                    const SizedBox(width: Sx.s8),
+                    Expanded(
+                      child: Text(
+                        "Guests can't confirm, so this match won't count toward stats or rating.",
+                        style: SxType.caption(c.inkMuted, size: 12.5),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: Sx.s8),
+              ] else if (_missing == 0) ...[
+                Row(
+                  children: [
+                    Icon(Icons.verified_outlined, size: 16, color: c.inkMuted),
+                    const SizedBox(width: Sx.s8),
+                    Expanded(
+                      child: Text(
+                        'The other players get a request to confirm. It counts once they do.',
+                        style: SxType.caption(c.inkMuted, size: 12.5),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: Sx.s8),
+              ],
               Row(
                 children: [
                   Icon(blocker == null ? Icons.check_circle_rounded : Icons.info_outline_rounded,

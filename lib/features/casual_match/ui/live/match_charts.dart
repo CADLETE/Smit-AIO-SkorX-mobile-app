@@ -49,46 +49,57 @@ class ChartLegend extends StatelessWidget {
 // ─── Points per game ─────────────────────────────────────────────────────
 
 /// How each side's score climbed through a game, rally by rally. One game at
-/// a time, chosen with the tabs; touch to read any rally.
+/// a time, chosen with the tabs; touch to read any rally. While the match is
+/// still on, the game in play is a tab too, and [initialGame] (the one
+/// being played, for someone watching) is shown until another is picked.
 class PointsProgressChart extends StatefulWidget {
-  const PointsProgressChart({super.key, required this.match, required this.analytics});
+  const PointsProgressChart({super.key, required this.match, required this.analytics, this.initialGame});
 
   final LocalMatch match;
   final MatchAnalytics analytics;
+  final int? initialGame;
 
   @override
   State<PointsProgressChart> createState() => _PointsProgressChartState();
 }
 
 class _PointsProgressChartState extends State<PointsProgressChart> {
-  int _game = 1;
+  int? _picked;
   int? _selected;
+
+  int get _game => _picked ?? widget.initialGame ?? 1;
 
   @override
   Widget build(BuildContext context) {
     final c = context.sx;
-    final games = widget.analytics.games;
-    final rallies = widget.analytics.game(_game);
     final match = widget.match;
+    final score = match.isOver ? null : match.score;
+    final tabs = [
+      for (final g in widget.analytics.games) (g.number, 'G${g.number}  ${g.score.a}–${g.score.b}'),
+      if (score != null && widget.analytics.games.isNotEmpty)
+        (score.gameNumber, 'G${score.gameNumber}  LIVE ${score.currentGame.a}–${score.currentGame.b}'),
+    ];
+    final rallies = widget.analytics.game(_game);
     final target = match.rules.pointsToWin;
     final selected = _selected == null || rallies.isEmpty ? null : rallies[_selected!.clamp(0, rallies.length - 1)];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (games.length > 1)
+        if (tabs.length > 1)
           Padding(
             padding: const EdgeInsets.only(bottom: Sx.s12),
             child: Wrap(
               spacing: Sx.s8,
+              runSpacing: Sx.s8,
               children: [
-                for (final g in games)
+                for (final (number, label) in tabs)
                   SxChip(
-                    key: Key('chartGame-${g.number}'),
-                    label: 'G${g.number}  ${g.score.a}–${g.score.b}',
-                    selected: _game == g.number,
+                    key: Key('chartGame-$number'),
+                    label: label,
+                    selected: _game == number,
                     onTap: () => setState(() {
-                      _game = g.number;
+                      _picked = number;
                       _selected = null;
                     }),
                   ),

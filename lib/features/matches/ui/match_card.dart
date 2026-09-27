@@ -221,29 +221,47 @@ class _SideLine extends StatelessWidget {
       children: [
         PlayerTap(name: names.length == 1 ? names.first : '', child: SideDps(names: names, size: 24, edge: c.surface)),
         const SizedBox(width: Sx.s8),
-        Flexible(child: SideNames(names: names, style: style, placeholder: placeholder)),
-        if (winner) ...[
-          const SizedBox(width: 6),
-          StateGlyph(SxState.won, size: 7, color: c.volt),
-        ],
-        const Spacer(),
+        // Expanded, not Flexible + Spacer: the names take all the free space,
+        // so the game columns always sit hard right, level on both rows.
+        Expanded(
+          child: Row(
+            children: [
+              Flexible(child: SideNames(names: names, style: style, placeholder: placeholder)),
+              if (winner) ...[
+                const SizedBox(width: 6),
+                StateGlyph(SxState.won, size: 7, color: c.volt),
+              ],
+            ],
+          ),
+        ),
+        // Each game is a fixed cell, centred and scaled down rather than
+        // overflowing, so the two sides' scores stack in one column per game
+        // whatever the digits or the phone's text size.
         for (final (i, g) in games.indexed)
           SizedBox(
-            width: 26,
-            child: Text(
-              '$g',
-              textAlign: TextAlign.right,
-              style: SxType.number(19, _bright(i, g) ? c.ink : c.inkFaint, weight: _bright(i, g) ? FontWeight.w800 : FontWeight.w600),
+            width: 32,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                '$g',
+                maxLines: 1,
+                softWrap: false,
+                textAlign: TextAlign.center,
+                style: SxType.number(19, _bright(i, g) ? c.ink : c.inkFaint, weight: _bright(i, g) ? FontWeight.w800 : FontWeight.w600),
+              ),
             ),
           ),
         if (live != null)
           Container(
             margin: const EdgeInsets.only(left: 8),
-            width: 34,
+            width: 36,
             alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(vertical: 2),
+            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 3),
             decoration: BoxDecoration(color: c.live.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)),
-            child: Text('$live', style: SxType.number(20, c.live, weight: FontWeight.w800)),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text('$live', maxLines: 1, softWrap: false, style: SxType.number(20, c.live, weight: FontWeight.w800)),
+            ),
           ),
       ],
     );

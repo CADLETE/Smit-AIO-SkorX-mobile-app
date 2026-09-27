@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -805,11 +806,17 @@ class SxRow extends StatelessWidget {
                   const SizedBox(width: Sx.s12),
                 ],
                 Expanded(
-                  flex: value == null ? 1 : 2,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(label, style: SxType.heading(ink, size: 16).copyWith(fontWeight: FontWeight.w600)),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(label,
+                            maxLines: 1,
+                            softWrap: false,
+                            style: SxType.heading(ink, size: 16).copyWith(fontWeight: FontWeight.w600)),
+                      ),
                       if (subtitle != null) ...[
                         const SizedBox(height: 2),
                         Text(subtitle!, style: SxType.caption(c.inkMuted)),
@@ -820,7 +827,6 @@ class SxRow extends StatelessWidget {
                 if (value != null) ...[
                   const SizedBox(width: Sx.s16),
                   Expanded(
-                    flex: 3,
                     child: Text(value!,
                         textAlign: TextAlign.end,
                         maxLines: 2,
@@ -1185,47 +1191,155 @@ class SxKeyboardSafe extends StatelessWidget {
       );
 }
 
-Future<T?> showSxSheet<T>(BuildContext context, {required WidgetBuilder builder, bool scrollable = true}) {
+/// [blurBackground] softens the screen behind the sheet, for sheets that
+/// should hold the eye on their own (a player's card). [gradientBorder]
+/// rims the sheet in a fine volt-to-cyan line.
+Future<T?> showSxSheet<T>(
+  BuildContext context, {
+  required WidgetBuilder builder,
+  bool scrollable = true,
+  bool blurBackground = false,
+  bool gradientBorder = false,
+}) {
   final c = context.sx;
-  return showModalBottomSheet<T>(
-    context: context,
-    // Above the tab bar, which would otherwise cover the sheet's last row.
-    useRootNavigator: true,
+  const radius = BorderRadius.vertical(top: Radius.circular(Sx.radiusLg));
+  final ShapeBorder shape = gradientBorder
+      ? _GradientEdgeBorder(
+          borderRadius: radius,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomCenter,
+            colors: [c.volt.withValues(alpha: 0.85), c.cyan.withValues(alpha: 0.55), c.line.withValues(alpha: 0)],
+            stops: const [0, 0.35, 0.9],
+          ),
+        )
+      : const RoundedRectangleBorder(borderRadius: radius);
+  if (!blurBackground) {
+    return showModalBottomSheet<T>(
+      context: context,
+      // Above the tab bar, which would otherwise cover the sheet's last row.
+      useRootNavigator: true,
+      isScrollControlled: scrollable,
+      useSafeArea: true,
+      backgroundColor: c.surface,
+      showDragHandle: true,
+      constraints: const BoxConstraints(maxWidth: Sx.maxContent),
+      shape: shape,
+      builder: (context) => SxKeyboardSafe(child: builder(context)),
+    );
+  }
+  final navigator = Navigator.of(context, rootNavigator: true);
+  final l10n = MaterialLocalizations.of(context);
+  return navigator.push(_BlurredSheetRoute<T>(
+    builder: (context) => SxKeyboardSafe(child: builder(context)),
+    capturedThemes: InheritedTheme.capture(from: context, to: navigator.context),
     isScrollControlled: scrollable,
     useSafeArea: true,
     backgroundColor: c.surface,
     showDragHandle: true,
     constraints: const BoxConstraints(maxWidth: Sx.maxContent),
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(Sx.radiusLg))),
-    builder: (context) => SxKeyboardSafe(child: builder(context)),
-  );
+    shape: shape,
+    barrierLabel: l10n.scrimLabel,
+    barrierOnTapHint: l10n.scrimOnTapHint(l10n.bottomSheetLabel),
+    modalBarrierColor: Colors.black.withValues(alpha: 0.35),
+  ));
+}
+
+/// A rounded rectangle whose outline is stroked with a gradient.
+class _GradientEdgeBorder extends RoundedRectangleBorder {
+  const _GradientEdgeBorder({super.borderRadius, required this.gradient, this.width = 1.2});
+
+  final Gradient gradient;
+  final double width;
+
+  @override
+  RoundedRectangleBorder copyWith({BorderSide? side, BorderRadiusGeometry? borderRadius}) =>
+      _GradientEdgeBorder(borderRadius: borderRadius ?? this.borderRadius, gradient: gradient, width: width);
+
+  @override
+  void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
+    final inset = rect.deflate(width / 2);
+    final rrect = borderRadius.resolve(textDirection).toRRect(rect).deflate(width / 2);
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = width
+        ..shader = gradient.createShader(inset, textDirection: textDirection),
+    );
+  }
+}
+
+/// A bottom sheet whose barrier blurs what is behind it, the blur rising
+/// and falling with the sheet itself.
+class _BlurredSheetRoute<T> extends ModalBottomSheetRoute<T> {
+  _BlurredSheetRoute({
+    required super.builder,
+    required super.isScrollControlled,
+    super.capturedThemes,
+    super.useSafeArea,
+    super.backgroundColor,
+    super.showDragHandle,
+    super.constraints,
+    super.shape,
+    super.barrierLabel,
+    super.barrierOnTapHint,
+    super.modalBarrierColor,
+  });
+
+  static const double _sigma = 6;
+
+  @override
+  Widget buildModalBarrier() {
+    final barrier = super.buildModalBarrier();
+    return AnimatedBuilder(
+      animation: animation!,
+      child: barrier,
+      builder: (context, child) {
+        final t = Curves.easeOut.transform(animation!.value.clamp(0.0, 1.0));
+        if (t == 0) return child!;
+        return BackdropFilter(filter: ImageFilter.blur(sigmaX: _sigma * t, sigmaY: _sigma * t), child: child);
+      },
+    );
+  }
 }
 
 // ─── Numbers ─────────────────────────────────────────────────────────────
 
-/// "▲ 18" / "▼ 9". Up is volt, down is muted: a loss is not an alarm.
+/// "▲ 18" / "▼ 0.9" / "▲ 12 pts". Up is volt, down is muted: a loss is not
+/// an alarm. [digits] 1 for a SkorX Rating change, 0 for SkorX Points.
 class RatingDelta extends StatelessWidget {
-  const RatingDelta(this.delta, {super.key, this.size = 15});
+  const RatingDelta(this.delta, {super.key, this.size = 15, this.digits = 0, this.unit = '', this.what = 'Rating'});
 
-  final int delta;
+  final num delta;
   final double size;
+  final int digits;
+
+  /// " pts".
+  final String unit;
+
+  /// What moved, for screen readers: "Rating", "SkorX Points".
+  final String what;
 
   @override
   Widget build(BuildContext context) {
     final c = context.sx;
-    final up = delta >= 0;
-    final color = delta == 0 ? c.inkMuted : (up ? c.volt : c.inkMuted);
+    final shown = num.parse(delta.toStringAsFixed(digits));
+    final up = shown >= 0;
+    final color = shown == 0 ? c.inkMuted : (up ? c.volt : c.inkMuted);
+    final abs = shown.abs().toStringAsFixed(digits);
+    final text = shown > 0 ? '+$abs' : shown < 0 ? '−$abs' : (digits == 0 ? '0' : abs);
     return Semantics(
-      label: 'Rating ${delta >= 0 ? 'up' : 'down'} ${delta.abs()}',
+      label: '$what ${up ? 'up' : 'down'} $abs',
       excludeSemantics: true,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (delta != 0) ...[
+          if (shown != 0) ...[
             StateGlyph(up ? SxState.won : SxState.lost, size: size * 0.5, color: color),
             SizedBox(width: size * 0.25),
           ],
-          Text(signed(delta), style: SxType.number(size, color, weight: FontWeight.w800)),
+          Text('$text$unit', style: SxType.number(size, color, weight: FontWeight.w800)),
         ],
       ),
     );

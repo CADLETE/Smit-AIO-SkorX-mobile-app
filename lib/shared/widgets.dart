@@ -21,13 +21,15 @@ class SkorxLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Decode at display size instead of the full 3.5k source.
+    // Decode at display size instead of the full 3.5k source. The first frame
+    // on Android can report a zero-sized view (pixel ratio 0); decode at full
+    // size then rather than asking for a 0 px image.
     final cacheHeight = (height * MediaQuery.devicePixelRatioOf(context)).round();
     final image = Image.asset(
       asset,
       height: height,
       width: height * aspectRatio,
-      cacheHeight: cacheHeight,
+      cacheHeight: cacheHeight > 0 ? cacheHeight : null,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.medium,
       semanticLabel: 'SkorX',

@@ -25,6 +25,7 @@ class Venue {
     this.rules = const [],
     this.phone,
     this.address,
+    this.imageUrl,
   });
 
   final String id;
@@ -47,6 +48,10 @@ class Venue {
   final List<String> rules;
   final String? phone;
   final String? address;
+
+  /// Banner photo from the API. Until venues upload one, the app draws the
+  /// venue's courts instead (VenueBanner).
+  final String? imageUrl;
 
   bool isPeak(int hour) => hour >= 18 && hour < 22;
   int priceAt(int hour) => isPeak(hour) ? peakPricePerHour : pricePerHour;

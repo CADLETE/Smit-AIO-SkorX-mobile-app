@@ -9,6 +9,48 @@ import 'package:skorx/core/sample_latency.dart';
 import 'package:skorx/features/auth/auth_controller.dart';
 import 'package:skorx/features/auth/data/auth_repository.dart';
 import 'package:skorx/features/auth/data/current_user.dart';
+import 'package:skorx/features/subscription/data/billing_repository.dart';
+import 'package:skorx/features/subscription/data/plans.dart';
+import 'package:skorx/features/subscription/data/subscription.dart';
+import 'package:skorx/features/subscription/subscription_controller.dart';
+
+/// A player on SkorX Pro (annual, renewing), for tests of Pro screens.
+class ProBillingRepository implements BillingRepository {
+  const ProBillingRepository();
+
+  static final summaryValue = SubscriptionSummary(
+    tier: PlanTier.pro,
+    status: SubscriptionStatus.active,
+    plan: ProPlan.annual,
+    startedAt: DateTime(2026, 9, 1),
+    endsAt: DateTime(2027, 8, 31, 23, 59, 59),
+    nextBillingDate: DateTime(2027, 9, 1),
+    autoRenew: true,
+    payment: PaymentState.paid,
+    entitlements: {for (final f in ProFeature.values) f.key},
+  );
+
+  @override
+  Future<SubscriptionSummary> summary() async => summaryValue;
+
+  @override
+  Future<List<BillingRecord>> history() async => const [];
+
+  @override
+  Future<PriceQuote> quote(ProPlan plan, {String? coupon}) async => PriceQuote(
+        plan: plan,
+        subtotalPaise: plan.price * 100,
+        discountPaise: 0,
+        gstRate: 0.18,
+        gstPaise: (plan.price * 18).round(),
+        totalPaise: plan.price * 118,
+        startsAt: DateTime(2027, 9, 1),
+        endsAt: DateTime(2027, 9, 1).add(Duration(days: plan.months * 30)),
+      );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError('${invocation.memberName}');
+}
 
 /// Turns on the system "reduce motion" setting. Home has looping animations
 /// (floating ball, live pulse) that never settle otherwise; with reduced
@@ -107,10 +149,16 @@ class FakeAppPermissions implements AppPermissions {
   Future<void> openSettings() async {}
 }
 
-List<Override> appOverrides(FakeAuthRepository repo, {AppPermissions? permissions}) => [
+/// [realBilling] bills through the app's own Test Mode stand-in, starting on
+/// Free like a new account. Otherwise the player is on Pro, so screens built
+/// before SkorX Pro keep showing everything they test.
+List<Override> appOverrides(FakeAuthRepository repo, {AppPermissions? permissions, bool realBilling = false}) => [
       authRepositoryProvider.overrideWithValue(repo),
+      if (!realBilling) billingRepositoryProvider.overrideWithValue(const ProBillingRepository()),
       appPermissionsProvider.overrideWithValue(permissions ?? FakeAppPermissions()),
       preferencesProvider.overrideWithValue(SharedPreferencesAsync()),
       // Sample data answers at once, so settled tests see it and leave no timers.
       sampleLatencyProvider.overrideWithValue(Duration.zero),
+      // Live matches hold still, so no rally timer outlives a test.
+      sampleLiveTickProvider.overrideWithValue(null),
     ];

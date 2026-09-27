@@ -8,7 +8,7 @@ import 'package:skorx/features/organizer/data/tms_models.dart';
 import 'package:skorx/sports/core/match_rules.dart';
 import 'package:skorx/sports/core/score_state.dart';
 
-Entry entry(String id, {int? seed, int rating = 1400, List<String>? players, String category = 'c'}) => Entry(
+Entry entry(String id, {int? seed, double rating = 60, List<String>? players, String category = 'c'}) => Entry(
       id: id,
       tournamentId: 't',
       categoryId: category,
@@ -20,7 +20,7 @@ Entry entry(String id, {int? seed, int rating = 1400, List<String>? players, Str
       checkInCode: id.toUpperCase(),
     );
 
-List<Entry> entries(int n) => [for (var i = 1; i <= n; i++) entry('e$i', rating: 2000 - i * 10)];
+List<Entry> entries(int n) => [for (var i = 1; i <= n; i++) entry('e$i', rating: 90 - i * 0.5)];
 
 void main() {
   group('tournament life cycle', () {

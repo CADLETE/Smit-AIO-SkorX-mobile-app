@@ -5,9 +5,12 @@ import '../../../../design/design.dart';
 import '../../../../sports/core/score_state.dart';
 import '../../../auth/auth_controller.dart';
 import '../../../rating/ui/arc_match_result.dart';
+import '../../../subscription/data/plans.dart';
+import '../../../subscription/ui/pro_widgets.dart';
 import '../../live/match_analytics.dart';
 import '../../local_match.dart';
 import '../../scoring_controller.dart';
+import '../../verification/ui/local_verification_panel.dart';
 import '../court_top_view.dart';
 import '../scoring_labels.dart';
 import 'match_charts.dart';
@@ -41,6 +44,9 @@ class MatchCompleteView extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(Sx.gutter, Sx.s12, Sx.gutter, Sx.s32),
         children: [
           reveal(_Hero(match: match, winner: winner, showGames: showGames)),
+          // The result only counts once the other players confirm it.
+          const SizedBox(height: Sx.s16),
+          reveal(LocalVerificationPanel(match: match)),
           if (ArcMatchResult.impacts(match) != null) ...[
             const SizedBox(height: Sx.s24),
             reveal(ArcMatchResult(match: match)),
@@ -53,16 +59,30 @@ class MatchCompleteView extends StatelessWidget {
           if (a.hasRallies) ...[
             const SizedBox(height: Sx.s24),
             const SxSection('Points by game'),
-            reveal(SxBlock(child: PointsProgressChart(match: match, analytics: a))),
-            const SizedBox(height: Sx.s24),
-            const SxSection('Momentum'),
-            reveal(SxBlock(child: MomentumChart(match: match, analytics: a))),
-            const SizedBox(height: Sx.s24),
-            const SxSection('Head to head'),
-            reveal(SxBlock(child: _HeadToHead(match: match, analytics: a))),
-            const SizedBox(height: Sx.s24),
-            SxSection(match.names(Side.a).length > 1 ? 'On serve, by player' : 'On serve'),
-            reveal(SxBlock(child: _Servers(match: match, analytics: a))),
+            // The charts are Match Analytics (SkorX Pro); the score, games
+            // and match facts stay free.
+            reveal(ProGate(
+              feature: ProFeature.matchAnalytics,
+              locked: const ProLockedPanel(
+                feature: ProFeature.matchAnalytics,
+                message: 'Points by game, momentum, head-to-head numbers and who served best, for every match you score.',
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SxBlock(child: PointsProgressChart(match: match, analytics: a)),
+                  const SizedBox(height: Sx.s24),
+                  const SxSection('Momentum'),
+                  SxBlock(child: MomentumChart(match: match, analytics: a)),
+                  const SizedBox(height: Sx.s24),
+                  const SxSection('Head to head'),
+                  SxBlock(child: _HeadToHead(match: match, analytics: a)),
+                  const SizedBox(height: Sx.s24),
+                  SxSection(match.names(Side.a).length > 1 ? 'On serve, by player' : 'On serve'),
+                  SxBlock(child: _Servers(match: match, analytics: a)),
+                ],
+              ),
+            )),
           ],
           const SizedBox(height: Sx.s24),
           const SxSection('Match'),

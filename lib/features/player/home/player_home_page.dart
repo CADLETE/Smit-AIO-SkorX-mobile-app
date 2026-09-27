@@ -7,9 +7,13 @@ import 'package:go_router/go_router.dart';
 import '../../../design/design.dart';
 import '../../../shared/format.dart';
 import '../../auth/auth_controller.dart';
+import '../../casual_match/verification/verification_controller.dart';
+import '../../looking_for/ui/home_card.dart';
 import '../../matches/data/match.dart';
 import '../../matches/data/match_repository.dart';
 import '../../notifications/notifications.dart';
+import '../../rating/arc_career.dart' show ArcPoint;
+import '../../rating/ui/arc_widgets.dart';
 import '../data/player_repository.dart';
 import '../player_pages.dart';
 
@@ -21,7 +25,7 @@ String greetingFor(DateTime now) {
 }
 
 /// Home answers one question: what matters to me right now? One Now card,
-/// recent results, three actions and three numbers. Nothing else.
+/// three actions, recent results and three numbers. Nothing else.
 class PlayerHomePage extends ConsumerWidget {
   const PlayerHomePage({super.key});
 
@@ -54,6 +58,12 @@ class PlayerHomePage extends ConsumerWidget {
             ),
           _ => const Skeleton(height: 300, radius: Sx.radiusLg),
         },
+        if (!brandNew) ...[
+          const SizedBox(height: Sx.section),
+          const _QuickActions(),
+        ],
+        const SizedBox(height: Sx.s16),
+        const LookingForHomeCard(),
         if (results.isNotEmpty) ...[
           const SizedBox(height: Sx.section),
           SxSection(results.length == 1 ? 'Last result' : 'Last results',
@@ -61,8 +71,6 @@ class PlayerHomePage extends ConsumerWidget {
           _LastResults(matches: results),
         ],
         if (!brandNew) ...[
-          const SizedBox(height: Sx.section),
-          const _QuickActions(),
           const SizedBox(height: Sx.section),
           const _Snapshot(),
         ],
@@ -80,6 +88,8 @@ class _Header extends ConsumerWidget {
     final user = ref.watch(currentUserProvider);
     final rating = ref.watch(playerOverviewProvider).value?.rating;
     final unread = ref.watch(unreadNotificationsProvider);
+    // Match requests wait for an answer, so they keep the dot on until answered.
+    final requests = ref.watch(matchRequestCountProvider);
     final name = user?.firstName ?? '';
     return Padding(
       padding: const EdgeInsets.fromLTRB(Sx.gutter, Sx.s12, Sx.s12, Sx.s8),
@@ -110,7 +120,7 @@ class _Header extends ConsumerWidget {
           ),
           Semantics(
             button: true,
-            label: rating == null ? 'Unrated. My Paddle' : 'Rating $rating. My Paddle',
+            label: rating == null ? 'Not rated yet. My Paddle' : 'SkorX Rating ${ratingText(rating)}. My Paddle',
             excludeSemantics: true,
             child: Tappable(
               key: const Key('headerRating'),
@@ -128,7 +138,7 @@ class _Header extends ConsumerWidget {
                   children: [
                     const SxBall(size: 24, float: false, glow: false),
                     const SizedBox(width: 6),
-                    Text(rating?.toString() ?? '—', style: SxType.number(22, c.ink, weight: FontWeight.w800)),
+                    Text(rating == null ? '—' : ratingText(rating), style: SxType.number(22, c.ink, weight: FontWeight.w800)),
                   ],
                 ),
               ),
@@ -139,8 +149,8 @@ class _Header extends ConsumerWidget {
             key: const Key('notificationsBell'),
             icon: Icons.notifications_none_rounded,
             label: 'Notifications',
-            dot: unread > 0,
-            onTap: () => context.push('/player/notifications'),
+            dot: unread > 0 || requests > 0,
+            onTap: () => context.push(requests > 0 && unread == 0 ? '/player/notifications?tab=requests' : '/player/notifications'),
           ),
         ],
       ),
@@ -595,43 +605,118 @@ class _Fact extends StatelessWidget {
       );
 }
 
-/// Recent results, newest first, swiped sideways; the next card peeks in.
+/// Recent results in one card: the form line, the latest match as a
+/// scoreboard, then the few before it as rows. Everything older is one tap
+/// away in All results.
 class _LastResults extends StatelessWidget {
   const _LastResults({required this.matches});
+
+  /// Newest first.
+  final List<Match> matches;
+
+  static const _rows = 3;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sx;
+    final latest = matches.first;
+    final earlier = matches.skip(1).take(_rows).toList();
+    return Container(
+      key: const Key('lastResults'),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        gradient: c.card,
+        borderRadius: BorderRadius.circular(Sx.radiusLg),
+        border: Border.all(color: c.cardEdge),
+        boxShadow: c.cardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (matches.length > 1) _FormStrip(matches: matches.take(5).toList()),
+          _LatestResult(key: const Key('lastResult'), match: latest),
+          for (final (i, m) in earlier.indexed) ...[
+            Divider(height: 1, thickness: 1, color: c.line, indent: Sx.s16, endIndent: Sx.s16),
+            _ResultRow(key: Key('lastResult-${i + 1}'), match: m),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// FORM with a square per match, newest on the left, and the tally.
+class _FormStrip extends StatelessWidget {
+  const _FormStrip({required this.matches});
 
   final List<Match> matches;
 
   @override
   Widget build(BuildContext context) {
-    if (matches.length == 1) return _LastResult(key: const Key('lastResult'), match: matches.first);
-    return LayoutBuilder(builder: (context, box) {
-      final width = box.maxWidth * 0.86;
-      return SingleChildScrollView(
-        key: const Key('lastResults'),
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        clipBehavior: Clip.none,
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final (i, m) in matches.indexed) ...[
-                if (i > 0) const SizedBox(width: Sx.s12),
-                SizedBox(
-                  width: width,
-                  child: _LastResult(key: Key(i == 0 ? 'lastResult' : 'lastResult-$i'), match: m),
-                ),
-              ],
-            ],
-          ),
+    final c = context.sx;
+    final wins = matches.where((m) => m.won).length;
+    return Semantics(
+      label: 'Form: $wins won, ${matches.length - wins} lost in the last ${matches.length}',
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(Sx.s16, Sx.s12, Sx.s16, Sx.s12),
+        decoration: BoxDecoration(
+          color: c.surfaceAlt.withValues(alpha: 0.5),
+          border: Border(bottom: BorderSide(color: c.line)),
         ),
-      );
-    });
+        child: Row(
+          children: [
+            Text('FORM', style: SxType.label(c.inkMuted, size: 11)),
+            const SizedBox(width: Sx.s12),
+            for (final m in matches) ...[
+              _ResultBadge(won: m.won, size: 22),
+              const SizedBox(width: 6),
+            ],
+            const Spacer(),
+            Text.rich(
+              TextSpan(children: [
+                TextSpan(text: '$wins', style: SxType.number(15, c.ink, weight: FontWeight.w800)),
+                TextSpan(text: 'W  ', style: SxType.caption(c.inkMuted, size: 12)),
+                TextSpan(text: '${matches.length - wins}', style: SxType.number(15, c.ink, weight: FontWeight.w800)),
+                TextSpan(text: 'L', style: SxType.caption(c.inkMuted, size: 12)),
+              ]),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
-class _LastResult extends StatelessWidget {
-  const _LastResult({super.key, required this.match});
+/// A W or L in a rounded square: volt for a win, quiet for a loss.
+class _ResultBadge extends StatelessWidget {
+  const _ResultBadge({required this.won, this.size = 28});
+
+  final bool won;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sx;
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        gradient: won ? c.brand : null,
+        color: won ? null : c.surfaceAlt,
+        borderRadius: BorderRadius.circular(size * 0.3),
+        border: won ? null : Border.all(color: c.line),
+      ),
+      child: Text(won ? 'W' : 'L', style: SxType.label(won ? c.onVolt : c.inkMuted, size: size * 0.5, weight: FontWeight.w800)),
+    );
+  }
+}
+
+/// The latest match as a scoreboard: both sides with their games, the
+/// winner bright, the rating change up top.
+class _LatestResult extends StatelessWidget {
+  const _LatestResult({super.key, required this.match});
 
   final Match match;
 
@@ -641,53 +726,177 @@ class _LastResult extends StatelessWidget {
     final m = match;
     final opp = sideLabel(m.theirs);
     final context_ = [m.contextLabel, if (m.tournament != null) m.stageLabel].join(' · ');
-    // Three bands spread over the card's full height, so cards stretched to
-    // the tallest in the row never bunch at the top.
-    return SxBlock(
-      padding: const EdgeInsets.fromLTRB(Sx.s16, Sx.s16, Sx.s16, Sx.s16),
-      onTap: () => context.push('/player/matches/${m.id}'),
-      semanticLabel: '${m.won ? 'Won' : 'Lost'} against $opp, ${m.games.map((g) => '${g.$1} ${g.$2}').join(', ')}',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
+    return Semantics(
+      button: true,
+      label: '${m.won ? 'Won' : 'Lost'} against $opp, ${m.games.map((g) => '${g.$1} ${g.$2}').join(', ')}',
+      excludeSemantics: true,
+      child: Tappable(
+        onTap: () => context.push('/player/matches/${m.id}'),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Sx.s16, Sx.s16, Sx.s16, Sx.s16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _VerdictChip(won: m.won),
+              Row(
+                children: [
+                  _VerdictChip(won: m.won),
+                  const SizedBox(width: Sx.s12),
+                  Expanded(
+                    child: Text(context_, maxLines: 1, overflow: TextOverflow.ellipsis, style: SxType.caption(c.inkMuted)),
+                  ),
+                  if (m.pointsEarned != null) ...[
+                    const SizedBox(width: Sx.s8),
+                    RatingDelta(m.pointsEarned!, size: 15, digits: 2, unit: ' SXP', what: 'SkorX Points'),
+                  ],
+                ],
+              ),
+              const SizedBox(height: Sx.s16),
+              Container(
+                padding: const EdgeInsets.fromLTRB(Sx.s12, Sx.s12, Sx.s12, Sx.s12),
+                decoration: BoxDecoration(
+                  color: c.surfaceAlt.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(Sx.radius),
+                  border: Border.all(color: c.line),
+                ),
+                child: Column(
+                  children: [
+                    _ScoreLine(names: m.mine, games: [for (final g in m.games) (g.$1, g.$2)], winner: m.won),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: Sx.s8),
+                      child: SizedBox(height: 8, child: NetLine()),
+                    ),
+                    _ScoreLine(names: m.theirs, games: [for (final g in m.games) (g.$2, g.$1)], winner: !m.won),
+                  ],
+                ),
+              ),
+              const SizedBox(height: Sx.s12),
+              Row(
+                children: [
+                  _Fact(icon: Icons.schedule_rounded, text: relativeDay(m.playedAt, DateTime.now()), color: c.inkMuted),
+                  if (m.venue != null) ...[
+                    const SizedBox(width: Sx.s16),
+                    Icon(Icons.place_outlined, size: 15, color: c.inkMuted),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(m.venue!,
+                          maxLines: 1, overflow: TextOverflow.ellipsis, style: SxType.caption(c.inkMuted, size: 13.5)),
+                    ),
+                  ] else
+                    const Spacer(),
+                  Icon(Icons.chevron_right_rounded, color: c.inkFaint, size: 20),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One side of the scoreboard: faces, name, then a column per game. Each
+/// game's winning score is bright, the other faint.
+class _ScoreLine extends StatelessWidget {
+  const _ScoreLine({required this.names, required this.games, required this.winner});
+
+  final List<String> names;
+
+  /// (this side, the other side) per game.
+  final List<(int, int)> games;
+  final bool winner;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sx;
+    return Row(
+      children: [
+        SideDps(names: names, size: 28, edge: c.surface),
+        const SizedBox(width: Sx.s12),
+        Expanded(
+          child: Row(
+            children: [
+              Flexible(
+                child: Text(sideLabel(names),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: SxType.heading(winner ? c.ink : c.inkMuted, size: 16)),
+              ),
+              if (winner) ...[
+                const SizedBox(width: 6),
+                Icon(Icons.emoji_events_rounded, size: 15, color: c.volt),
+              ],
+            ],
+          ),
+        ),
+        for (final g in games)
+          SizedBox(
+            width: 34,
+            child: Text(
+              '${g.$1}',
+              textAlign: TextAlign.center,
+              style: SxType.number(20, g.$1 > g.$2 ? c.ink : c.inkFaint, weight: FontWeight.w800),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// An earlier result on one line: W/L, opponent, games, day.
+class _ResultRow extends StatelessWidget {
+  const _ResultRow({super.key, required this.match});
+
+  final Match match;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sx;
+    final m = match;
+    final opp = sideLabel(m.theirs);
+    final score = m.games.map((g) => '${g.$1}–${g.$2}').join('  ');
+    return Semantics(
+      button: true,
+      label: '${m.won ? 'Won' : 'Lost'} against $opp, ${m.games.map((g) => '${g.$1} ${g.$2}').join(', ')}',
+      excludeSemantics: true,
+      child: Tappable(
+        onTap: () => context.push('/player/matches/${m.id}'),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Sx.s16, Sx.s12, Sx.s12, Sx.s12),
+          child: Row(
+            children: [
+              _ResultBadge(won: m.won),
               const SizedBox(width: Sx.s12),
               Expanded(
-                child: Text(context_, maxLines: 1, overflow: TextOverflow.ellipsis, style: SxType.caption(c.inkMuted)),
-              ),
-              if (m.ratingChange != null) ...[
-                const SizedBox(width: Sx.s8),
-                RatingDelta(m.ratingChange!, size: 15),
-              ],
-            ],
-          ),
-          const SizedBox(height: Sx.s16),
-          Row(
-            children: [
-              for (final (i, g) in m.games.indexed) ...[
-                if (i > 0) const SizedBox(width: Sx.s8),
-                Expanded(child: _GameTile(mine: g.$1, theirs: g.$2)),
-              ],
-              for (var i = m.games.length; i < 3; i++) ...[
-                const SizedBox(width: Sx.s8),
-                const Expanded(child: SizedBox()),
-              ],
-            ],
-          ),
-          const SizedBox(height: Sx.s16),
-          Row(
-            children: [
-              Expanded(
-                child: Text('vs $opp', maxLines: 1, overflow: TextOverflow.ellipsis, style: SxType.heading(c.ink, size: 16)),
+                flex: 3,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('vs $opp', maxLines: 1, overflow: TextOverflow.ellipsis, style: SxType.heading(c.ink, size: 15)),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${m.tournament == null ? m.kind.label : m.stageLabel} · ${relativeDay(m.playedAt, DateTime.now())}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: SxType.caption(c.inkMuted, size: 12.5),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(width: Sx.s8),
-              Text(relativeDay(m.playedAt, DateTime.now()), style: SxType.caption(c.inkMuted, size: 12.5)),
+              // Three long games shrink to fit a narrow phone rather than push the name out.
+              Flexible(
+                flex: 2,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(score, style: SxType.number(15, m.won ? c.ink : c.inkMuted, weight: FontWeight.w700)),
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(Icons.chevron_right_rounded, color: c.inkFaint, size: 20),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -723,39 +932,6 @@ class _VerdictChip extends StatelessWidget {
   }
 }
 
-/// One game's score; a game the player won gets a volt edge.
-class _GameTile extends StatelessWidget {
-  const _GameTile({required this.mine, required this.theirs});
-
-  final int mine;
-  final int theirs;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.sx;
-    final won = mine > theirs;
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: Sx.s8),
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: c.surfaceAlt,
-        borderRadius: BorderRadius.circular(Sx.radiusSm),
-        border: Border.all(color: won ? c.voltFill.withValues(alpha: 0.7) : c.line),
-      ),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Text.rich(
-          TextSpan(children: [
-            TextSpan(text: '$mine', style: SxType.number(20, won ? c.ink : c.inkMuted, weight: FontWeight.w800)),
-            TextSpan(text: '–', style: SxType.number(20, c.inkFaint, weight: FontWeight.w600)),
-            TextSpan(text: '$theirs', style: SxType.number(20, won ? c.inkMuted : c.ink, weight: FontWeight.w800)),
-          ]),
-        ),
-      ),
-    );
-  }
-}
-
 class _QuickActions extends StatelessWidget {
   const _QuickActions();
 
@@ -778,7 +954,7 @@ class _QuickActions extends StatelessWidget {
           ),
         ),
         const SizedBox(width: Sx.s12),
-        tile('quickTournaments', Icons.emoji_events_rounded, 'Find tournament', '/player/explore?view=tournaments',
+        tile('quickTournaments', Icons.emoji_events_rounded, 'Find tournament', '/player/explore/tournaments',
             [c.voltFill, c.olive]),
         const SizedBox(width: Sx.s12),
         tile('quickMatches', Icons.scoreboard_rounded, 'My matches', '/player/paddle/matches', [c.cyan, c.blue]),
@@ -828,7 +1004,8 @@ class _ActionTile extends StatelessWidget {
   }
 }
 
-/// The SkorX rating up top, then win rate and rank; everything else is in My Paddle.
+/// The SkorX Rating up top, then SkorX Points, win rate and rank; everything
+/// else is in My Paddle.
 class _Snapshot extends ConsumerWidget {
   const _Snapshot();
 
@@ -891,6 +1068,8 @@ class _Snapshot extends ConsumerWidget {
                 const SizedBox(height: Sx.s8),
                 Row(
                   children: [
+                    cell(overview?.points == null ? '—' : sxpText(overview!.points!), 'SkorX Points', Icons.stars_rounded, c.brand),
+                    const SizedBox(width: Sx.s8),
                     cell(record?.winRate == null ? '—' : '${record!.winRate}%', 'Win rate', Icons.local_fire_department_rounded,
                         c.cool),
                     const SizedBox(width: Sx.s8),
@@ -907,7 +1086,7 @@ class _Snapshot extends ConsumerWidget {
   }
 }
 
-/// The SkorX rating as the centrepiece of "Your game": the number, the level,
+/// The SkorX Rating as the centrepiece of "Your game": the number, its band,
 /// the last 30 days and a trend line drawing in beside it.
 class _RatingCard extends ConsumerWidget {
   const _RatingCard({required this.overview});
@@ -917,15 +1096,16 @@ class _RatingCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.sx;
-    final rating = overview?.rating;
+    final arc = overview?.arc;
     final change = overview?.ratingChange30d ?? 0;
-    final history = ref.watch(ratingHistoryProvider).value ?? const <RatingPoint>[];
+    final history = ref.watch(ratingHistoryProvider).value ?? const <ArcPoint>[];
     final values = [for (final p in history) p.rating];
     return Semantics(
       key: const Key('homeRating'),
-      label: rating == null
-          ? 'SkorX rating: unrated'
-          : 'SkorX rating $rating, ${overview!.level}, ${change >= 0 ? 'up' : 'down'} ${change.abs()} in 30 days',
+      label: arc == null
+          ? 'SkorX Rating: not rated yet'
+          : 'SkorX Rating ${ratingText(arc.rating)}, ${arc.band.label}, '
+              '${change >= 0 ? 'up' : 'down'} ${change.abs().toStringAsFixed(1)} in 30 days',
       excludeSemantics: true,
       child: Container(
         padding: const EdgeInsets.fromLTRB(Sx.s16, Sx.s16, Sx.s16, Sx.s16),
@@ -953,23 +1133,21 @@ class _RatingCard extends ConsumerWidget {
                   FittedBox(
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerLeft,
-                    child: rating == null
-                        ? Text('UNRATED', style: SxType.number(40, c.inkFaint, weight: FontWeight.w800))
-                        : SxGradientText('$rating', gradient: c.brand, style: SxType.number(52, c.ink, weight: FontWeight.w800)),
+                    child: arc == null
+                        ? Text('NOT RATED', style: SxType.number(36, c.inkFaint, weight: FontWeight.w800))
+                        : SxGradientText(ratingText(arc.rating),
+                            gradient: c.brand, style: SxType.number(52, c.ink, weight: FontWeight.w800)),
                   ),
                   const SizedBox(height: Sx.s4),
-                  if (rating == null)
-                    Text('Play 3 rated matches to get rated', style: SxType.caption(c.inkMuted, size: 12))
+                  if (arc == null)
+                    Text('Finish a scored match to get your rating', style: SxType.caption(c.inkMuted, size: 12))
                   else
                     Row(
                       children: [
-                        Flexible(
-                          child: Text(overview!.level,
-                              maxLines: 1, overflow: TextOverflow.ellipsis, style: SxType.heading(c.ink, size: 14)),
-                        ),
-                        if (change != 0) ...[
+                        Flexible(child: SkorxBandChip(band: arc.band, size: 11)),
+                        if (change.abs() >= 0.05) ...[
                           const SizedBox(width: Sx.s8),
-                          RatingDelta(change, size: 13),
+                          RatingDelta(change, size: 13, digits: 1),
                           const SizedBox(width: 3),
                           Text('30d', style: SxType.caption(c.inkMuted, size: 11)),
                         ],
@@ -980,7 +1158,7 @@ class _RatingCard extends ConsumerWidget {
             ),
             if (values.length >= 2) ...[
               const SizedBox(width: Sx.s12),
-              Expanded(flex: 4, child: RatingGraph(values: values, height: 72)),
+              Expanded(flex: 4, child: RatingGraph(values: values, height: 72, minSpan: 4, label: 'SkorX Rating')),
             ],
           ],
         ),
@@ -1017,7 +1195,7 @@ class _Welcome extends StatelessWidget {
           ),
           const SizedBox(height: Sx.s24),
           SxButton(key: const Key('welcomeTournament'), label: 'Find a tournament', icon: Icons.emoji_events_rounded,
-              onPressed: () => context.go('/player/explore?view=tournaments')),
+              onPressed: () => context.go('/player/explore/tournaments')),
           const SizedBox(height: Sx.s12),
           SxButton.secondary(key: const Key('welcomeScore'), label: 'Start a match', icon: Icons.sports_tennis_rounded,
               onPressed: () => context.push('/player/match/new')),
@@ -1066,7 +1244,7 @@ class _HowItWorks extends StatelessWidget {
       children: [
         const SxSection('How SkorX works'),
         step(0, Icons.sports_tennis_rounded, 'Play', 'Enter tournaments or score friendly matches.'),
-        step(1, Icons.trending_up_rounded, 'Get rated', 'Every rated match moves your SkorX rating.'),
+        step(1, Icons.trending_up_rounded, 'Get rated', 'Every scored match moves your SkorX Rating and adds SkorX Points.'),
         step(2, Icons.leaderboard_rounded, 'Climb', 'Rank in your city, state and country. Unlock achievements.'),
       ],
     );

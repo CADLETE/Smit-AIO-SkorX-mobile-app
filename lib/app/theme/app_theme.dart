@@ -4,6 +4,7 @@ import '../../design/fx.dart';
 import '../../design/tokens.dart';
 import '../../design/type.dart';
 import 'tokens.dart';
+import 'typography.dart';
 
 /// Which workspace the theme is for. Player is personal and energetic
 /// (cyan/blue); organizer is operational (lime/blue).
@@ -102,10 +103,14 @@ ThemeData buildSkorxTheme({required Brightness brightness, required WorkspaceAcc
       backgroundColor: colors.surface,
       indicatorColor: highlight.withValues(alpha: 0.18),
       height: 68,
+      // Condensed display face: five tabs on a narrow phone still fit on one
+      // line ("Tournaments" wrapped in the body font on a 411 pt wide screen).
       labelTextStyle: WidgetStateProperty.resolveWith(
         (states) => TextStyle(
-          fontSize: 12,
-          fontWeight: states.contains(WidgetState.selected) ? FontWeight.w700 : FontWeight.w500,
+          fontFamily: SkorxType.family,
+          fontSize: 14,
+          letterSpacing: 0.3,
+          fontWeight: states.contains(WidgetState.selected) ? FontWeight.w700 : FontWeight.w600,
           color: states.contains(WidgetState.selected) ? colors.text : colors.textMuted,
         ),
       ),

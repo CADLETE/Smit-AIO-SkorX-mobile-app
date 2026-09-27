@@ -11,7 +11,7 @@ Matches → tournaments → results → rating → ranking → achievements, all
 |---|---|
 | Home | What matters to me right now? |
 | Matches | What is being played across SkorX? (every match, not just mine; §6) |
-| Explore | Which tournaments, courts and players are out there? |
+| Explore | Which tournaments, courts, players and people are out there? (Community and Looking For are modules inside it; docs/COMMUNITY.md) |
 | My Paddle | How is *my* journey going: my matches, my tournaments, my numbers? |
 | Account | Who am I, and how do I control my account? |
 
@@ -104,7 +104,9 @@ The connected path the brief asks for, and where each step is tapped:
 |---|---|
 | `/player/home` | Home (tab) |
 | `/player/matches?view=live\|upcoming\|results` | Matches (tab) |
-| `/player/explore?view=tournaments\|courts` | Explore (tab) |
+| `/player/explore` | Explore (tab): the hub |
+| `/player/explore/tournaments\|players\|courts` | An Explore module, inside the tab (old `?view=` links redirect here) |
+| `/player/explore/<coming-soon id>` | Coming-soon page for a module not built yet |
 | `/player/paddle` | My Paddle (tab) |
 | `/player/profile` | Profile (tab) |
 | `/player/matches/:id` | Match detail |
@@ -143,7 +145,7 @@ After that: the latest result (verdict, games, opponent, rating change), three a
 
 A player who is not registered lands on About, where the only primary action is *Register*.
 
-**Explore.** Search, then **Tournaments | Courts**.
+**Explore.** A hub, not a list: open modules first (Tournaments, Scores, Players, Courts), two to a row, each with a true live fact when there is one ("2 live", "Live now"); then *Coming to SkorX* (Your Performance, Looking For, Community, Leaderboards, Associations), each marked SOON and opening a coming-soon sheet. Modules are configured in `features/explore/explore_modules.dart`: to switch one on, give it a `location` and make it active. Scores opens the Matches tab; the others open inside Explore with search and filters, as below.
 - Tournaments: a strip of "Your tournaments" (only when there are any), simple chips (Near me, This week, Beginner, Doubles…) plus one filter button, then tournament cards. Each card shows only name, date, venue, format, fee, status and one button.
 - Courts: city, date strip, then venues. **Booking takes five steps:** location → date → time → court → confirm. Time and court are picked in one bottom sheet.
 
@@ -317,7 +319,7 @@ This replaces the Matches row of §2.2: **Matches is now every match on SkorX**,
 
 | Route | Screen |
 |---|---|
-| `/player/matches?view=all\|live\|upcoming\|completed\|tournaments` | Matches tab: search, filter sheet, removable filter chips. *All* = Live now strip, From tournaments strip, Coming up, Latest results (infinite scroll). `?view=results` still works (Completed). |
+| `/player/matches?view=all\|live\|upcoming\|completed\|tournaments` | Matches tab: search, filter sheet, removable filter chips. *All* = Live now strip, From tournaments strip, Coming up, Latest results strip (full list under Completed). `?view=results` still works (Completed). |
 | `/player/players/:id` | Player analytics: overview (SkorX Points, W/L, formats), current form (last 5/10 %, streak, best run), W/L trend, SkorX Points graph (own stats), casual vs tournament, recent tournaments, rivals, recent matches (infinite scroll). `me` is the signed-in player. |
 | `/player/players/:id/vs/:other` | Head-to-head: score, win %, last meeting, recent form, every meeting. |
 | `/player/paddle/matches?category=casual\|tournament` | My matches, paged. |

@@ -22,7 +22,7 @@ class DrawLayout {
       DrawLayout(categoryId: categoryId, format: format, groups: groups, method: method);
 }
 
-/// Seeds first (1, 2, 3…), then the rest by SkorX rating, highest first.
+/// Seeds first (1, 2, 3…), then the rest by SkorX Rating, highest first.
 List<Entry> seedOrder(Iterable<Entry> entries) => entries.toList()
   ..sort((a, b) {
     final bySeed = (a.seed ?? 1 << 20).compareTo(b.seed ?? 1 << 20);

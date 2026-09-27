@@ -9,8 +9,7 @@ import '../../shared/format.dart';
 import '../../shared/ui/components.dart';
 import '../shell/workspace_shell.dart';
 import '../workspace/workspace.dart';
-import '../workspace/workspace_controller.dart';
-import '../workspace/workspace_switcher.dart';
+import '../workspace/mode_switch.dart';
 import 'data/organizer_repository.dart';
 import 'data/tms_models.dart';
 import 'ui/org_widgets.dart';
@@ -109,6 +108,8 @@ class OrganizerProfileTab extends ConsumerWidget {
               ),
             ],
           ),
+          const SizedBox(height: SkorxSpace.lg),
+          const ModeSwitch(),
           const SkxSectionTitle('Organiser stats'),
           AsyncBody<OrgProfile>(
             value: profile,
@@ -149,7 +150,6 @@ class OrganizerProfileTab extends ConsumerWidget {
                 onTap: () => context.push('/org/$orgId/${m.route}'),
               ),
           ]),
-          const _ModeGroup(),
           const SizedBox(height: SkorxSpace.lg),
           Text(
             'Streaming, certificates and integrations are managed on the SkorX web dashboard.',
@@ -158,35 +158,5 @@ class OrganizerProfileTab extends ConsumerWidget {
         ],
       ),
     );
-  }
-}
-
-/// Organiser ⇄ Player, kept out of the top bar because organisers rarely
-/// switch mid-tournament. The same account either way.
-class _ModeGroup extends ConsumerWidget {
-  const _ModeGroup();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(workspaceControllerProvider);
-    final organisations = state.available.whereType<OrganizerWorkspace>().length;
-    return SkxGroup(title: 'Mode', children: [
-      SkxRow(
-        key: const Key('switchToPlayer'),
-        icon: Icons.sports_tennis_rounded,
-        iconColor: context.skorx.colors.cyan,
-        label: 'Switch to Player',
-        subtitle: 'Your matches, stats and courts',
-        onTap: () => switchWorkspace(context, const PlayerWorkspace()),
-      ),
-      if (organisations > 1)
-        SkxRow(
-          key: const Key('switchOrganisation'),
-          icon: Icons.swap_horiz_rounded,
-          label: 'Switch organisation',
-          subtitle: '$organisations organisations',
-          onTap: () => showWorkspaceSwitcher(context),
-        ),
-    ]);
   }
 }

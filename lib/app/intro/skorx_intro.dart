@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -31,6 +32,30 @@ class SkorxIntroGate extends ConsumerStatefulWidget {
 class _SkorxIntroGateState extends ConsumerState<SkorxIntroGate> {
   bool _done = false;
 
+  /// Holds the opening scene until the first frames are on screen. Start-up
+  /// work (engine warm-up, the session restore, shader compilation) can
+  /// stall the first second of frames; an animation started then plays
+  /// while nothing is drawn and the player never sees the ball fly in.
+  bool _rolling = false;
+  Timer? _roll;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _roll = Timer(const Duration(milliseconds: 280), () {
+        if (mounted) setState(() => _rolling = true);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _roll?.cancel();
+    super.dispose();
+  }
+
   /// Decided once, when the saved onboarding state is known, so finishing
   /// the introduction later does not swap the animation mid-play.
   bool? _quick;
@@ -54,7 +79,7 @@ class _SkorxIntroGateState extends ConsumerState<SkorxIntroGate> {
         // splash image). A returning player's shorter version takes over once
         // the saved state is read, while the ball is still off screen.
         AbsorbPointer(
-          child: SkorxIntro(quick: _quick ?? false, onFinished: _finish),
+          child: SkorxIntro(quick: _quick ?? false, started: _rolling, onFinished: _finish),
         ),
       ],
     );
@@ -327,6 +352,8 @@ class _IntroPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // The first frame can be laid out before the window has a size.
+    if (size.isEmpty) return;
     _paintGlow(canvas, size);
     _paintCourt(canvas, size);
     _paintBall(canvas, size);

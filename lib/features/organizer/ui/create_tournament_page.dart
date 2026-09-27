@@ -501,7 +501,7 @@ class _CreateTournamentPageState extends ConsumerState<CreateTournamentPage> {
               ),
               const SizedBox(height: SkorxSpace.sm),
               SkxSegmented<int>(
-                segments: const [(1, '1 game'), (3, 'Best of 3'), (5, 'Best of 5')],
+                segments: const [(1, '1 game'), (3, 'Best of 3')],
                 selected: c.bestOf,
                 onChanged: (v) => setState(() => c.bestOf = v),
               ),

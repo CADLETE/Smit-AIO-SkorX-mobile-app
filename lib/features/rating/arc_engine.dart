@@ -2,34 +2,78 @@ import 'dart:math' as math;
 
 /// SkorX ARC (Athlete Rating & Career): the rating engine.
 ///
-/// Every player carries three numbers per format:
-/// - **SkorX Points (SXP)**: the career total. Every counted match adds to it;
-///   it never goes down through play.
-/// - **Power Index (SPI)**: 0–100, how well the player plays right now. It
-///   moves up and down and is what rank and opponent strength use.
-/// - **Heat**: recent form, the % by which the player's point share beat what
-///   SkorX expected over the last 10 matches.
+/// Players see two numbers, kept apart on purpose:
+/// - **SkorX Rating** (SPI in code): 0–100, how well the player plays right
+///   now. It moves up and down and is what rank, seeding and opponent strength
+///   use. Shown with a [SkorxBand].
+/// - **SkorX Points (SXP)**: the Career Score. Only the points a player
+///   actually scores build it: points ÷ 20 in a casual match, ÷ 10 in a
+///   tournament, and a doubles side's points shared equally by its two
+///   players. No opponent strength, win bonus or other hidden factor. It never
+///   goes down through play. Drives the 14 [ArcLevel]s.
+///
+/// **Heat** (recent form against expectation) is computed but not shown.
 ///
 /// Pure Dart with no Flutter imports, so the server can run the same maths.
 /// The full specification is `docs/RATING-SYSTEM.md`.
 
 /// Engine version stored with every score change so old numbers stay explainable.
-const arcEngineVersion = 'arc-1.0';
+const arcEngineVersion = 'arc-2.0';
 
-/// How much a kind of match counts towards SXP. Never affects SPI.
-enum ArcMatchType {
-  casual('Casual', 0.6),
-  club('Club', 0.8),
-  league('League', 1.0),
-  tournament('Tournament', 1.2),
-  championship('Championship', 1.4);
+/// SkorX Points maths. SXP is kept in exact units of 1/40 point: points ÷ 20
+/// ÷ 2 (casual doubles) is the smallest step, so every contribution and every
+/// career total is a whole number of units and never drifts through rounding.
+/// Only display rounds, to 2 decimals.
+abstract final class Sxp {
+  static const casualDivisor = 20;
+  static const tournamentDivisor = 10;
+  static const unitsPerPoint = 40;
 
-  const ArcMatchType(this.label, this.weight);
-  final String label;
-  final double weight;
+  /// A player's SXP units from their side's actual points: points ÷ [divisor]
+  /// ÷ [players] (1 for singles, 2 for doubles and mixed).
+  static int units({required int points, required int divisor, required int players}) {
+    assert(players == 1 || players == 2, 'a side has one or two players');
+    assert(unitsPerPoint % (divisor * players) == 0);
+    return points * (unitsPerPoint ~/ (divisor * players));
+  }
+
+  /// Exact SXP for [units].
+  static double of(int units) => units / unitsPerPoint;
+
+  /// [units] in hundredths of a point, rounded half up (half away from zero).
+  static int hundredths(int units) => units >= 0 ? (units * 5 + 1) ~/ 2 : -((-units * 5 + 1) ~/ 2);
+
+  /// [units] rounded to 2 decimals, for display.
+  static double shown(int units) => hundredths(units) / 100;
+
+  /// Whole units for an SXP value (sample data, or the server's decimal).
+  static int unitsOf(double sxp) => (sxp * unitsPerPoint).round();
 }
 
-/// Where a match sits in an event; later rounds count a little more.
+/// The kind of match. For SXP it sets the conversion: casual play divides the
+/// points scored by 20, tournament play (league and championship included) by
+/// 10. [weight] only weights recent matches in Heat; it never touches SXP.
+enum ArcMatchType {
+  casual('Casual', 0.6, Sxp.casualDivisor),
+  club('Club', 0.8, Sxp.casualDivisor),
+  league('League', 1.0, Sxp.tournamentDivisor),
+  tournament('Tournament', 1.2, Sxp.tournamentDivisor),
+  championship('Championship', 1.4, Sxp.tournamentDivisor);
+
+  const ArcMatchType(this.label, this.weight, this.divisor);
+  final String label;
+  final double weight;
+
+  /// Points scored ÷ this = the side's SXP.
+  final int divisor;
+
+  bool get isTournament => divisor == Sxp.tournamentDivisor;
+
+  /// "Casual" or "Tournament": the two conversions players see.
+  String get sxpLabel => isTournament ? 'Tournament' : 'Casual';
+}
+
+/// Where a match sits in an event; later rounds weigh a little more in Heat.
 enum ArcStage {
   pool('Pool', 1.0),
   quarterFinal('Quarter-final', 1.05),
@@ -43,18 +87,19 @@ enum ArcStage {
 
 /// How sure SkorX is that the score is real.
 enum ArcTrust {
-  tournament('T1', 'Tournament verified', 1.0, 1.0),
-  organiser('T2', 'Organiser verified', 0.95, 0.95),
-  players('T3', 'Player verified', 0.8, 0.8),
-  selfReported('T4', 'Self-reported', 0.6, 0),
-  unverified('T5', 'Unverified', 0, 0);
+  tournament('T1', 'Tournament verified', true, 1.0),
+  organiser('T2', 'Organiser verified', true, 0.95),
+  players('T3', 'Player verified', true, 0.8),
+  selfReported('T4', 'Self-reported', false, 0),
+  unverified('T5', 'Unverified', false, 0);
 
-  const ArcTrust(this.code, this.label, this.sxpFactor, this.spiFactor);
+  const ArcTrust(this.code, this.label, this.countsForCareer, this.spiFactor);
   final String code;
   final String label;
 
-  /// TF: share of SXP credited.
-  final double sxpFactor;
+  /// Whether the match adds SkorX Points. SXP is all or nothing: a verified
+  /// match credits every point scored, a self-reported or unverified one none.
+  final bool countsForCareer;
 
   /// V: share of the SPI update applied. Self-reported matches never move SPI.
   final double spiFactor;
@@ -63,25 +108,13 @@ enum ArcTrust {
   bool get movesSkill => spiFactor > 0;
 }
 
-/// Every constant of the engine in one place, so they can be versioned and tuned.
+/// Every constant of the skill engine in one place, so they can be versioned
+/// and tuned. SXP has no tuning constants beyond [Sxp]'s two divisors.
 class ArcWeights {
   const ArcWeights._();
 
   static const lambda = 0.5;
-  static const playCredit = 2.0;
-  static const pointsCredit = 10.0;
-  static const winBase = 4.0;
-  static const winMargin = 4.0;
-  static const challenge = 25.0;
-  static const matchCap = 60.0;
   static const maxMatchWeight = 1.6;
-  static const repeatDecay = 0.7;
-  static const repeatFloor = 0.15;
-  static const fullMatchesPerDay = 6;
-  static const tiredFactor = 0.5;
-  static const capBase = 200.0;
-  static const capPerSpi = 10.0;
-  static const gravityHalving = 100.0;
   static const kMin = 0.6;
   static const kExtra = 2.4;
   static const kScale = 10.0;
@@ -128,25 +161,20 @@ double arcLearningRate(int matches) => ArcWeights.kMin + ArcWeights.kExtra * mat
 /// How much a player's SPI can be trusted, 0.4–1.0, from their match count.
 double arcConfidence(int matches) => 0.4 + 0.6 * (1 - math.exp(-matches / ArcWeights.kScale));
 
-/// The career level a player's skill supports; gains slow down above it.
-double arcCareerCap(double spi) => ArcWeights.capBase + ArcWeights.capPerSpi * spi;
-
 /// Everything about one player going into a match.
 class ArcPlayerState {
-  const ArcPlayerState({required this.spi, required this.sxp, required this.matches, double? overallSpi})
-      : overallSpi = overallSpi ?? spi;
+  const ArcPlayerState({required this.spi, required this.sxpUnits, required this.matches});
 
-  static const newPlayer = ArcPlayerState(spi: ArcWeights.newPlayerSpi, sxp: 0, matches: 0);
+  static const newPlayer = ArcPlayerState(spi: ArcWeights.newPlayerSpi, sxpUnits: 0, matches: 0);
 
   /// Power Index in this format.
   final double spi;
 
-  /// Career SXP (all formats), which Gravity compares with [overallSpi].
-  final double sxp;
+  /// Career SXP (all formats), in [Sxp] units.
+  final int sxpUnits;
 
   /// Trust-weighted rated matches in this format over the last 12 months.
   final int matches;
-  final double overallSpi;
 
   bool get provisional => matches < ArcWeights.provisionalMatches;
 }
@@ -163,16 +191,16 @@ class ArcMatchInput {
     this.stage = ArcStage.pool,
     this.trust = ArcTrust.players,
     this.otherPlayersMatches = const [],
-    this.previousMeetings = 0,
-    this.matchesEarlierToday = 0,
     this.retired = false,
   });
 
-  /// SPI of each player on my side (me first) and theirs.
+  /// SPI of each player on my side (me first) and theirs. How many players
+  /// are on [mySide] is how many share the side's SXP.
   final List<double> mySide;
   final List<double> theirSide;
 
-  /// Summed over every game.
+  /// Actual points scored, summed over every game played. Points awarded for
+  /// a walkover or retirement are never included.
   final int pointsFor;
   final int pointsAgainst;
   final bool won;
@@ -184,22 +212,8 @@ class ArcMatchInput {
   /// how much to trust their SPIs.
   final List<int> otherPlayersMatches;
 
-  /// Counted matches against this same line-up in the last 30 days.
-  final int previousMeetings;
-
-  /// Counted matches the player already played today.
-  final int matchesEarlierToday;
-
-  /// The match ended in a retirement (scores completed for the other side).
+  /// The match ended in a retirement. Only the points played up to then count.
   final bool retired;
-}
-
-/// A line of the "why did my score change" breakdown.
-class ArcLine {
-  const ArcLine(this.label, this.value);
-
-  final String label;
-  final double value;
 }
 
 /// What one match did to one player, with every number used to get there.
@@ -209,18 +223,11 @@ class ArcImpact {
     required this.share,
     required this.won,
     required this.opponentSpi,
-    required this.play,
-    required this.points,
-    required this.win,
-    required this.challenge,
-    required this.opponentFactor,
+    required this.pointsScored,
+    required this.playersOnSide,
     required this.matchWeight,
-    required this.trustFactor,
-    required this.repeatFactor,
-    required this.fatigueFactor,
-    required this.gravity,
-    required this.sxpBefore,
-    required this.sxpGain,
+    required this.sxpBeforeUnits,
+    required this.sxpUnits,
     required this.spiBefore,
     required this.spiAfter,
     required this.learningRate,
@@ -239,24 +246,18 @@ class ArcImpact {
   /// SPI of the other side of the net.
   final double opponentSpi;
 
-  // The four credits, before multipliers.
-  final double play;
-  final double points;
-  final double win;
-  final double challenge;
+  /// Actual points the player's side scored, all games.
+  final int pointsScored;
 
-  // The multipliers.
-  final double opponentFactor;
+  /// 1 in singles, 2 in doubles and mixed: how many share the side's SXP.
+  final int playersOnSide;
+
+  /// Type × stage, for Heat only.
   final double matchWeight;
-  final double trustFactor;
-  final double repeatFactor;
-  final double fatigueFactor;
-  final double gravity;
 
-  final double sxpBefore;
-
-  /// SXP earned: never negative.
-  final double sxpGain;
+  /// Career SXP before the match and SXP earned by it, in [Sxp] units.
+  final int sxpBeforeUnits;
+  final int sxpUnits;
   final double spiBefore;
   final double spiAfter;
   final double learningRate;
@@ -264,8 +265,30 @@ class ArcImpact {
   final ArcMatchType type;
   final ArcTrust trust;
 
-  double get raw => play + points + win + challenge;
-  double get sxpAfter => sxpBefore + sxpGain;
+  /// Points ÷ this = the side's SXP (20 casual, 10 tournament).
+  int get divisor => type.divisor;
+
+  /// Whether the match added to the Career Score.
+  bool get credited => trust.countsForCareer;
+
+  int get sxpAfterUnits => sxpBeforeUnits + sxpUnits;
+
+  /// Exact SXP.
+  double get sxpBefore => Sxp.of(sxpBeforeUnits);
+  double get sxpGain => Sxp.of(sxpUnits);
+  double get sxpAfter => Sxp.of(sxpAfterUnits);
+
+  /// The side's SXP before it is shared: points ÷ divisor.
+  double get sideSxp => pointsScored / divisor;
+
+  /// Career before and after, rounded to 2 decimals, and the change between
+  /// them. The change is worked out from the rounded totals so the three
+  /// numbers players see always add up; it can differ from the rounded
+  /// exact gain by 0.01.
+  double get shownBefore => Sxp.shown(sxpBeforeUnits);
+  double get shownAfter => Sxp.shown(sxpAfterUnits);
+  double get shownGain => (Sxp.hundredths(sxpAfterUnits) - Sxp.hundredths(sxpBeforeUnits)) / 100;
+
   double get spiChange => spiAfter - spiBefore;
 
   /// Share beaten (or missed) against expectation: the heart of SPI and Heat.
@@ -289,39 +312,9 @@ class ArcImpact {
                   ? 'Moderate'
                   : 'Low';
 
-  /// The breakdown shown to players. Lines sum to [sxpGain] (before display
-  /// rounding; see [displayLines]).
-  List<ArcLine> get lines {
-    final f = trustFactor * repeatFactor * fatigueFactor * gravity;
-    final base = raw * f;
-    final uncapped = base * opponentFactor * matchWeight;
-    return [
-      ArcLine('Played', play * f),
-      ArcLine('Point performance', points * f),
-      if (win > 0) ArcLine('Win bonus', win * f),
-      if (challenge > 0) ArcLine('Beat expectation', challenge * f),
-      ArcLine('Opponent strength', base * (opponentFactor - 1)),
-      ArcLine(type.weight < 1 ? '${type.label} match' : 'Match importance', base * opponentFactor * (matchWeight - 1)),
-      if (uncapped > sxpGain) ArcLine('Match cap', sxpGain - uncapped),
-    ];
-  }
-
-  /// [lines] rounded to 0.1, tiny ones dropped, and the rounding remainder
-  /// added to the largest line so the lines add up to the rounded headline.
-  List<ArcLine> get displayLines {
-    final shown = [for (final l in lines) if (l.value.abs() >= 0.05) ArcLine(l.label, (l.value * 10).round() / 10)];
-    if (shown.isEmpty) return shown;
-    final target = (sxpGain * 10).round() / 10;
-    final sum = shown.fold<double>(0, (s, l) => s + l.value);
-    final diff = ((target - sum) * 10).round() / 10;
-    if (diff == 0) return shown;
-    var big = 0;
-    for (var i = 1; i < shown.length; i++) {
-      if (shown[i].value > shown[big].value) big = i;
-    }
-    shown[big] = ArcLine(shown[big].label, ((shown[big].value + diff) * 10).round() / 10);
-    return shown;
-  }
+  /// The formula in one line: "11 points ÷ 20 ÷ 2 players".
+  String get formula =>
+      '$pointsScored ${pointsScored == 1 ? 'point' : 'points'} ÷ $divisor${playersOnSide > 1 ? ' ÷ $playersOnSide players' : ''}';
 
   /// One sentence on why the score moved.
   String get why {
@@ -334,23 +327,14 @@ class ArcImpact {
 ArcImpact arcRate(ArcPlayerState me, ArcMatchInput m) {
   final total = m.pointsFor + m.pointsAgainst;
   final share = total == 0 ? 0.5 : m.pointsFor / total;
-  final dominance = total == 0 ? 0.0 : (m.pointsFor - m.pointsAgainst) / total;
   final expected = arcExpectedShare(m.mySide, m.theirSide);
   final opponentSpi = arcTeamSpi(m.theirSide);
 
-  // Career Engine.
-  const play = ArcWeights.playCredit;
-  final points = ArcWeights.pointsCredit * share;
-  final win = m.won ? ArcWeights.winBase + ArcWeights.winMargin * dominance : 0.0;
-  final challenge = ArcWeights.challenge * math.max(0, share - expected);
-  final od = 0.4 + 1.2 * opponentSpi / 100;
-  final mw = math.min(ArcWeights.maxMatchWeight, m.type.weight * m.stage.weight);
-  final tf = m.trust.sxpFactor;
-  final rf = math.max(ArcWeights.repeatFloor, math.pow(ArcWeights.repeatDecay, m.previousMeetings).toDouble());
-  final df = m.matchesEarlierToday >= ArcWeights.fullMatchesPerDay ? ArcWeights.tiredFactor : 1.0;
-  final cap = arcCareerCap(me.overallSpi);
-  final g = me.sxp <= cap ? 1.0 : math.pow(0.5, (me.sxp - cap) / ArcWeights.gravityHalving).toDouble();
-  final gain = math.min(ArcWeights.matchCap, (play + points + win + challenge) * od * mw * tf * rf * df * g);
+  // Career Engine: actual points ÷ divisor ÷ players on the side. Nothing else.
+  final players = m.mySide.length;
+  final units = m.trust.countsForCareer
+      ? Sxp.units(points: m.pointsFor, divisor: m.type.divisor, players: players)
+      : 0;
 
   // Skill Engine.
   final k = arcLearningRate(me.matches);
@@ -368,18 +352,11 @@ ArcImpact arcRate(ArcPlayerState me, ArcMatchInput m) {
     share: share,
     won: m.won,
     opponentSpi: opponentSpi,
-    play: play,
-    points: points,
-    win: win,
-    challenge: challenge,
-    opponentFactor: od,
-    matchWeight: mw,
-    trustFactor: tf,
-    repeatFactor: rf,
-    fatigueFactor: df,
-    gravity: g,
-    sxpBefore: me.sxp,
-    sxpGain: gain,
+    pointsScored: m.pointsFor,
+    playersOnSide: players,
+    matchWeight: math.min(ArcWeights.maxMatchWeight, m.type.weight * m.stage.weight),
+    sxpBeforeUnits: me.sxpUnits,
+    sxpUnits: units,
     spiBefore: me.spi,
     spiAfter: spiAfter,
     learningRate: k,
@@ -418,47 +395,59 @@ String arcHeatLabel(double heat) => heat > 20
                     ? 'Cool'
                     : 'Ice';
 
-/// One of the twelve career levels, from SXP.
+/// The skill band a SkorX Rating sits in, in the words players already use.
+enum SkorxBand {
+  beginner('Beginner', 0, 'Learning the game'),
+  intermediate('Intermediate', 40, 'Rallies well, knows the kitchen'),
+  advanced('Advanced', 55, 'Wins club and league matches'),
+  pro('Pro', 70, 'Top of the tournament draws');
+
+  const SkorxBand(this.label, this.from, this.tagline);
+  final String label;
+
+  /// Lowest SkorX Rating in the band.
+  final double from;
+  final String tagline;
+
+  static SkorxBand of(double rating) => values.lastWhere((b) => rating >= b.from);
+
+  SkorxBand? get next => index < values.length - 1 ? values[index + 1] : null;
+}
+
+/// One of the fourteen career levels, from the Career Score alone. A level
+/// shows how far a SkorX career has come, not how well the player plays; that
+/// is the SkorX Rating.
+///
+/// The steps widen as the career grows: an active weekend player reaches
+/// Centurion in about a year, while 10,000 takes the most active players
+/// many years. The score keeps counting past 10,000.
 class ArcLevel {
-  const ArcLevel(this.number, this.name, this.minSxp, this.tagline,
-      {this.verifiedMatches = 0, this.tournamentMatches = 0, this.needsConfirmed = false});
+  const ArcLevel(this.number, this.name, this.minSxp, this.tagline);
 
   final int number;
   final String name;
   final int minSxp;
   final String tagline;
 
-  /// Gates besides SXP.
-  final int verifiedMatches;
-  final int tournamentMatches;
-  final bool needsConfirmed;
-
   static const all = [
-    ArcLevel(1, 'First Serve', 0, 'Learning the game and the score'),
-    ArcLevel(2, 'Return Ready', 100, 'Plays every week and keeps the ball in'),
-    ArcLevel(3, 'Dink Crafter', 200, 'Comfortable at the kitchen line', verifiedMatches: 10),
-    ArcLevel(4, 'Kitchen Regular', 300, 'A regular in leagues and ladders', needsConfirmed: true),
-    ArcLevel(5, 'Third-Shot Artist', 400, 'Builds points instead of just hitting', verifiedMatches: 20),
-    ArcLevel(6, 'Transition Hunter', 500, 'Wins the battle through mid-court', verifiedMatches: 25),
-    ArcLevel(7, 'Net Commander', 600, 'Controls the net against club peers', verifiedMatches: 30, tournamentMatches: 3),
-    ArcLevel(8, 'Firefight Specialist', 700, 'Wins the fast hands battles', verifiedMatches: 40, tournamentMatches: 6),
-    ArcLevel(9, 'Erne Striker', 800, 'Takes risks that pay off', verifiedMatches: 50, tournamentMatches: 10),
-    ArcLevel(10, 'ATP Maestro', 900, 'A regular at regional tournaments', verifiedMatches: 60, tournamentMatches: 15),
-    ArcLevel(11, 'Kitchen Sovereign', 1000, 'Top of the city and state tables',
-        verifiedMatches: 80, tournamentMatches: 20),
-    ArcLevel(12, 'SkorX Legend', 1200, 'A long elite career', verifiedMatches: 100, tournamentMatches: 30),
+    ArcLevel(1, 'First Serve', 0, 'Every point you score builds your career'),
+    ArcLevel(2, 'Baseliner', 10, 'On the board and playing every week'),
+    ArcLevel(3, 'Kitchen Walker', 25, 'Moving up to the net'),
+    ArcLevel(4, 'Dinksmith', 50, 'Points adding up at the kitchen line'),
+    ArcLevel(5, 'Centurion', 100, 'Your first hundred SkorX Points'),
+    ArcLevel(6, 'Point Builder', 200, 'Building a career point by point'),
+    ArcLevel(7, 'Rally Forger', 350, 'Seasons of rallies behind you'),
+    ArcLevel(8, 'Net Raider', 600, 'A regular name on the courts and in the draws'),
+    ArcLevel(9, 'Court Marshal', 1000, 'A thousand SkorX Points'),
+    ArcLevel(10, 'Clutch Caller', 1750, 'Years of tournaments and big points'),
+    ArcLevel(11, 'Paddle Ronin', 3000, 'A long road, travelled match by match'),
+    ArcLevel(12, 'Rally Monarch', 5000, 'One of the great careers in SkorX'),
+    ArcLevel(13, 'Evergreen', 7500, 'Still here, still scoring, year after year'),
+    ArcLevel(14, 'SkorX Legend', 10000, 'Ten thousand points. A legend’s career'),
   ];
 
-  /// The level SXP reaches, ignoring gates.
+  /// The level a Career Score reaches.
   static ArcLevel of(double sxp) => all.lastWhere((l) => sxp >= l.minSxp);
-
-  /// The highest level SXP and the gates both allow.
-  static ArcLevel reached(double sxp, {required int verified, required int tournament, required bool confirmed}) =>
-      all.lastWhere((l) =>
-          sxp >= l.minSxp &&
-          verified >= l.verifiedMatches &&
-          tournament >= l.tournamentMatches &&
-          (!l.needsConfirmed || confirmed));
 
   ArcLevel? get next => number < all.length ? all[number] : null;
 

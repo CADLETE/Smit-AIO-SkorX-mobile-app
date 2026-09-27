@@ -846,7 +846,7 @@ class SampleOrganizerRepository implements OrganizerRepository {
       tournamentId: tournamentId,
       categoryId: categoryId,
       players: [
-        PlayerRef(id: 'me', name: playerName.isEmpty ? 'SkorX player' : playerName, rating: 1380, city: t.city),
+        PlayerRef(id: 'me', name: playerName.isEmpty ? 'SkorX player' : playerName, rating: 48.0, city: t.city),
         if (partner != null && partner.trim().isNotEmpty) PlayerRef(id: _id('p'), name: partner.trim()),
       ],
       registeredAt: _clock(),
@@ -924,7 +924,7 @@ class SampleOrganizerRepository implements OrganizerRepository {
       final name = '${firsts[r.nextInt(firsts.length)]} ${_last[r.nextInt(_last.length)]}';
       if (!used.add(name)) continue;
       out.add(PlayerRef(id: 'p-${name.toLowerCase().replaceAll(' ', '-')}', name: name,
-          rating: 1150 + r.nextInt(700), city: 'Ahmedabad'));
+          rating: 30 + r.nextInt(500) / 10, city: 'Ahmedabad'));
     }
     return out;
   }

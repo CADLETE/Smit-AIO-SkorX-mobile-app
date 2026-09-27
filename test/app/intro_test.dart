@@ -45,7 +45,7 @@ void main() {
     await pumpGate(tester, container);
     await tester.pump();
     expect(find.byType(SkorxIntro), findsOneWidget);
-    expect(await playOut(tester), lessThan(2700));
+    expect(await playOut(tester), lessThan(3100), reason: '2.6 s plus the hold for the first frames');
   });
 
   testWidgets('reduced motion skips the intro', (tester) async {

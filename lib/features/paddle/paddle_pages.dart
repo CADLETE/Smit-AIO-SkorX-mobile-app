@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../design/design.dart';
 import '../../shared/format.dart';
 import '../auth/auth_controller.dart';
+import '../casual_match/verification/ui/pending_matches_section.dart';
 import '../matches/data/match.dart';
 import '../matches/data/match_repository.dart';
 import '../player/data/player_repository.dart';
@@ -13,9 +14,15 @@ import '../player/data/x_code.dart';
 import '../player/player_pages.dart';
 import '../player/ui/player_quick_view.dart' show playerStatsPath;
 import '../rating/arc_career.dart';
+import '../rating/arc_engine.dart' show ArcWeights;
 import '../rating/ui/arc_widgets.dart';
+import '../subscription/data/plans.dart';
+import '../subscription/subscription_controller.dart';
+import '../subscription/ui/pro_widgets.dart';
 import 'data/my_play.dart';
 import 'my_play_pages.dart';
+import 'paddle_sections.dart';
+import '../casual_match/offline/ui/offline_ui.dart';
 
 /// My playing journey, and only mine: what is next, my casual and
 /// tournament matches, my tournaments, my SkorX Points, ranking and badges.
@@ -62,18 +69,23 @@ class MyPaddlePage extends ConsumerWidget {
           onTap: () => context.push(playerStatsPath('me')),
           child: Row(
           children: [
-            SxAvatar(name: user?.name ?? '', size: 60, ring: true),
+            PlayerDp(name: user?.name ?? 'You', size: 60, edge: c.voltFill),
             const SizedBox(width: Sx.s16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(user?.name ?? '', style: SxType.heading(c.ink, size: 19)),
+                  Row(
+                    children: [
+                      Flexible(child: Text(user?.name ?? '', overflow: TextOverflow.ellipsis, style: SxType.heading(c.ink, size: 19))),
+                      if (ref.watch(isProProvider)) ...[const SizedBox(width: Sx.s8), const ProBadge(key: Key('paddlePro'), size: 10)],
+                    ],
+                  ),
                   const SizedBox(height: 2),
                   Text(
                     [
                       if (user?.xCode != null) XCode.display(user!.xCode!),
-                      o?.level ?? '',
+                      if (o?.arc != null) '${o!.arc!.band.label} · ${ratingText(o.arc!.rating)}',
                       ?favourite,
                     ].where((s) => s.isNotEmpty).join(' · '),
                     style: SxType.caption(c.inkMuted),
@@ -94,20 +106,41 @@ class MyPaddlePage extends ConsumerWidget {
         ),
         const _UpNext(),
         const SizedBox(height: Sx.section),
+        // Casual matches only count once every player confirms: verified vs
+        // pending, and what is still waiting.
+        const SxSection('Casual matches'),
+        const OfflineMatchesRow(),
+        const PendingMatchesSection(),
+        const SizedBox(height: Sx.section),
         const _MyMatchesSection(category: MatchCategory.casual),
         const SizedBox(height: Sx.section),
         const _MyMatchesSection(category: MatchCategory.tournament),
+        const SizedBox(height: Sx.section),
+        // Badges get their own highlighted card, where they are seen.
+        const _AchievementsSection(),
         const SizedBox(height: Sx.section),
         const _MyTournamentsSection(),
         const SizedBox(height: Sx.section),
         if (overview.isLoading && o == null)
           const Skeleton(height: 220, radius: Sx.radiusLg)
         else ...[
-          _RatingSection(rating: o?.rating, arc: o?.arc),
+          _RatingSection(arc: o?.arc),
           const SizedBox(height: Sx.section),
-          _RankingSection(rankings: o?.rankings ?? const [], favourite: favourite),
-          const SizedBox(height: Sx.section),
-          const _AchievementsSection(),
+          ProGate(
+            feature: ProFeature.localRanking,
+            locked: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SxSection('Ranking', action: 'Leaderboards', onAction: () => context.push('/player/rankings')),
+                const ProLockedPanel(feature: ProFeature.localRanking),
+              ],
+            ),
+            child: _RankingSection(rankings: o?.rankings ?? const [], favourite: favourite),
+          ),
+          if (o?.arc != null) ...[
+            const SizedBox(height: Sx.section),
+            _PointsSection(arc: o!.arc!),
+          ],
         ],
       ],
     );
@@ -117,89 +150,53 @@ class MyPaddlePage extends ConsumerWidget {
       r == null || r.played == 0 ? null : r.preferredFormat.label;
 }
 
-class _RatingSection extends ConsumerWidget {
-  const _RatingSection({required this.rating, this.arc});
+/// SkorX Rating: skill now. Before any rated match, what it is and how to
+/// get one.
+class _RatingSection extends StatelessWidget {
+  const _RatingSection({this.arc});
 
-  final int? rating;
-
-  /// Level, Power Index, Heat and formats, when the player is rated.
   final ArcSummary? arc;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final c = context.sx;
-    final history = ref.watch(ratingHistoryProvider).value ?? const [];
-    if (rating == null) {
-      return Column(
-        key: const Key('unrated'),
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SxSection('SkorX Points'),
-          Text('UNRATED', style: SxType.hero(64, c.inkFaint)),
-          const SizedBox(height: Sx.s12),
-          Text('Play 3 rated matches to get your SkorX rating. It moves with every result after that.',
-              style: SxType.body(c.inkMuted)),
-          const SizedBox(height: Sx.s16),
-          const RecordBar(wins: 0, losses: 0, height: 6),
-          const SizedBox(height: Sx.s8),
-          Text('0 of 3 rated matches', style: SxType.caption(c.inkMuted)),
-        ],
-      );
-    }
-    final now = DateTime.now();
-    final monthAgo = history.where((p) => now.difference(p.date).inDays >= 30).lastOrNull ?? history.firstOrNull;
-    final change = monthAgo == null ? 0 : rating! - monthAgo.rating;
-    final values = [for (final p in history) p.rating];
-    final shown = values.length > 30 ? values.sublist(values.length - 30) : values;
-    final hi = values.isEmpty ? rating! : values.reduce((a, b) => a > b ? a : b);
+    final a = arc;
     return Column(
-      key: const Key('ratingSection'),
+      key: Key(a == null ? 'unrated' : 'ratingSection'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SxSection('SkorX Points', action: 'How it works', onAction: () => showArcExplainer(context)),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Flexible(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.bottomLeft,
-                child: CountUp(value: rating!, style: SxType.hero(88, c.ink)),
-              ),
-            ),
-            const SizedBox(width: Sx.s16),
-            Padding(
-              padding: const EdgeInsets.only(bottom: Sx.s8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  RatingDelta(change, size: 22),
-                  Text('last 30 days', style: SxType.caption(c.inkMuted)),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: Sx.s16),
-        RatingGraph(values: shown, height: 110),
-        const SizedBox(height: Sx.s8),
-        Row(
-          children: [
-            Expanded(child: Text('Last ${shown.length} rated matches', style: SxType.caption(c.inkMuted, size: 12))),
-            Text('Best $hi', style: SxType.caption(c.inkMuted, size: 12)),
-          ],
-        ),
-        if (arc != null) ...[
-          const SizedBox(height: Sx.s20),
-          ArcLevelBar(summary: arc!),
+        SxSection('SkorX Rating', action: 'How it works', onAction: () => showArcExplainer(context)),
+        if (a == null) ...[
+          Text('NOT RATED YET', style: SxType.title(c.inkFaint, size: 28)),
+          const SizedBox(height: Sx.s8),
+          Text(
+            'Your SkorX Rating shows how good you are right now, from 0 to 100. Finish a scored match to get yours.',
+            style: SxType.body(c.inkMuted),
+          ),
           const SizedBox(height: Sx.s16),
-          ArcSkillStrip(summary: arc!),
-          const SizedBox(height: Sx.s16),
-          ArcFormats(summary: arc!),
-        ],
+          SkorxBandBar(rating: ArcWeights.newPlayerSpi),
+        ] else
+          SkorxRatingPanel(summary: a),
       ],
     );
   }
+}
+
+/// SkorX Points: everything earned, and the level they unlock.
+class _PointsSection extends StatelessWidget {
+  const _PointsSection({required this.arc});
+
+  final ArcSummary arc;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        key: const Key('pointsSection'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SxSection('SkorX Points', action: 'How it works', onAction: () => showArcExplainer(context)),
+          SkorxPointsPanel(summary: arc),
+        ],
+      );
 }
 
 /// My live and next matches, when there are any.
@@ -208,10 +205,8 @@ class _UpNext extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final c = context.sx;
     final active = ref.watch(activeMatchesProvider).value ?? const <Match>[];
     if (active.isEmpty) return const SizedBox.shrink();
-    final now = DateTime.now();
     return Padding(
       key: const Key('upNext'),
       padding: const EdgeInsets.only(top: Sx.section),
@@ -219,10 +214,7 @@ class _UpNext extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SxSection(active.first.isLive ? 'Playing now' : 'Up next'),
-          for (final (i, m) in active.take(2).indexed) ...[
-            if (i > 0) Divider(height: 1, color: c.line),
-            MatchRow(match: m, now: now, onTap: () => context.push('/player/matches/${m.id}')),
-          ],
+          PlayingNowCards(matches: active),
         ],
       ),
     );
@@ -237,7 +229,6 @@ class _MyMatchesSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final c = context.sx;
     final summary = ref.watch(myPlaySummaryProvider(category));
     final page = ref.watch(myMatchesProvider(category));
     final title = category == MatchCategory.casual ? 'My casual matches' : 'My tournament matches';
@@ -246,23 +237,15 @@ class _MyMatchesSection extends ConsumerWidget {
       key: Key('my-${category.name}'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SxSection(title,
-            action: (summary.value?.played ?? 0) > 0 ? 'All' : null, onAction: () => context.push(open)),
+        SxSection(title),
         switch ((summary, page)) {
           (AsyncData(value: final WinLoss s), AsyncData(value: final MatchPage p)) when s.played == 0 && p.matches.isEmpty =>
             MyMatchesEmpty(category: category, compact: true),
-          (AsyncData(value: final WinLoss s), AsyncData(value: final MatchPage p)) => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                WinLossRow(record: s, size: 24),
-                const SizedBox(height: Sx.s12),
-                RecordBar(wins: s.wins, losses: s.losses, height: 5),
-                const SizedBox(height: Sx.s8),
-                for (final (i, m) in p.matches.take(3).indexed) ...[
-                  if (i > 0) Divider(height: 1, color: c.line),
-                  MatchRow(match: m, onTap: () => context.push('/player/matches/${m.id}')),
-                ],
-              ],
+          (AsyncData(value: final WinLoss s), AsyncData(value: final MatchPage p)) => MyMatchesCard(
+              category: category,
+              record: s,
+              matches: p.matches,
+              onAll: () => context.push(open),
             ),
           (AsyncError(), _) || (_, AsyncError()) => ErrorBlock(
               message: 'Your matches did not load.',
@@ -330,7 +313,7 @@ class _RankingSection extends StatelessWidget {
           SxSection('Ranking', action: 'Leaderboards', onAction: () => context.push('/player/rankings')),
           Text('NOT RANKED YET', style: SxType.title(c.inkFaint, size: 28)),
           const SizedBox(height: Sx.s8),
-          Text('You join the rankings with your first rating.', style: SxType.body(c.inkMuted)),
+          Text('You join the rankings once you have a SkorX Rating.', style: SxType.body(c.inkMuted)),
         ],
       );
     }
@@ -373,6 +356,8 @@ class _RankingSection extends StatelessWidget {
               Expanded(child: Stat(value: '#${_compact(r.rank)}', label: r.scope.label, size: 24)),
           ],
         ),
+        const SizedBox(height: Sx.s12),
+        Text('Rankings are by SkorX Rating.', style: SxType.caption(c.inkMuted, size: 12)),
       ],
     );
   }
@@ -387,38 +372,18 @@ class _AchievementsSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final c = context.sx;
     final all = ref.watch(achievementsProvider).value;
-    if (all == null) return const Skeleton(height: 100);
-    final unlocked = all.where((a) => a.unlocked).toList()..sort((a, b) => b.unlockedAt!.compareTo(a.unlockedAt!));
-    final shown = unlocked.isEmpty ? all.take(4).toList() : unlocked.take(4).toList();
+    if (all == null) return const Skeleton(height: 320, radius: Sx.radiusLg);
     return Column(
       key: const Key('achievementsSection'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SxSection('Achievements · ${unlocked.length} of ${all.length}',
-            action: 'All', onAction: () => context.push('/player/achievements')),
-        Row(
-          children: [
-            for (final a in shown)
-              Expanded(
-                child: Tappable(
-                  onTap: () => showAchievement(context, a),
-                  child: Column(
-                    children: [
-                      AchievementCoin(achievement: a, size: 64),
-                      const SizedBox(height: Sx.s8),
-                      Text(a.title, textAlign: TextAlign.center, maxLines: 2, style: SxType.caption(a.unlocked ? c.ink : c.inkMuted, size: 12)),
-                    ],
-                  ),
-                ),
-              ),
-          ],
+        const SxSection('Achievements'),
+        TrophyRoomCard(
+          all: all,
+          onOpen: () => context.push('/player/achievements'),
+          onBadge: (a) => showAchievement(context, a),
         ),
-        if (unlocked.isEmpty) ...[
-          const SizedBox(height: Sx.s12),
-          Text('Your first badge comes with your first match.', style: SxType.caption(c.inkMuted)),
-        ],
       ],
     );
   }
@@ -456,15 +421,19 @@ Future<void> showAchievement(BuildContext context, Achievement a) => showSxSheet
 
 /// Where the player ranks, by format and scope, with the leaderboard.
 class RankingsPage extends ConsumerStatefulWidget {
-  const RankingsPage({super.key});
+  const RankingsPage({super.key, this.scope, this.category});
+
+  /// Where to open, e.g. the leaderboard Explore was showing.
+  final RankScope? scope;
+  final PlayCategory? category;
 
   @override
   ConsumerState<RankingsPage> createState() => _RankingsPageState();
 }
 
 class _RankingsPageState extends ConsumerState<RankingsPage> {
-  PlayCategory _cat = PlayCategory.doubles;
-  RankScope _scope = RankScope.city;
+  late PlayCategory _cat = widget.category ?? PlayCategory.doubles;
+  late RankScope _scope = widget.scope ?? RankScope.city;
 
   @override
   Widget build(BuildContext context) {
@@ -488,22 +457,34 @@ class _RankingsPageState extends ConsumerState<RankingsPage> {
                   padding: const EdgeInsets.fromLTRB(Sx.gutter, Sx.s16, Sx.gutter, Sx.s48),
                   children: [
                     // My place in each scope; tap to see that leaderboard.
-                    Row(
-                      children: [
-                        for (final s in RankScope.values)
-                          Expanded(
-                            child: _ScopeTile(
-                              scope: s,
-                              ranking: rankings.where((r) => r.scope == s && r.category == _cat).firstOrNull,
-                              selected: s == _scope,
-                              onTap: () => setState(() => _scope = s),
+                    ProGate(
+                      feature: ProFeature.localRanking,
+                      locked: const ProLockedPanel(
+                        feature: ProFeature.localRanking,
+                        message: 'Your rank in your city, state, country and the world, and how it moves.',
+                      ),
+                      child: Row(
+                        children: [
+                          for (final s in RankScope.values)
+                            Expanded(
+                              child: _ScopeTile(
+                                scope: s,
+                                ranking: rankings.where((r) => r.scope == s && r.category == _cat).firstOrNull,
+                                selected: s == _scope,
+                                onTap: () => setState(() => _scope = s),
+                              ),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
                     const SizedBox(height: Sx.section),
                     SxSection('${_scope.label} leaderboard · ${_cat.label}'),
-                    switch (board) {
+                    if (!ref.watch(canAccessProvider(ProFeature.leaderboard)))
+                      const ProLockedPanel(
+                        feature: ProFeature.leaderboard,
+                        message: 'The top players in every scope and format, and where you sit among them.',
+                      )
+                    else switch (board) {
                       AsyncData(:final value) when value.isEmpty => const EmptyBlock(
                           icon: Icons.leaderboard_outlined,
                           title: 'No rankings yet',
@@ -619,7 +600,7 @@ class _LeaderRow extends StatelessWidget {
               ],
             ),
           ),
-          Text('${e.rating}', style: SxType.number(18, c.ink, weight: FontWeight.w800)),
+          Text(ratingText(e.rating), style: SxType.number(18, c.ink, weight: FontWeight.w800)),
         ],
       ),
       ),
@@ -627,12 +608,22 @@ class _LeaderRow extends StatelessWidget {
   }
 }
 
-/// Every badge: earned ones first, then what to go after next.
-class AchievementsPage extends ConsumerWidget {
+enum _BadgeFilter { all, unlocked, inProgress }
+
+/// Every badge, on shelves by what they are for: wins, streaks, tournaments
+/// and so on. The top shows the collection and what is closest.
+class AchievementsPage extends ConsumerStatefulWidget {
   const AchievementsPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AchievementsPage> createState() => _AchievementsPageState();
+}
+
+class _AchievementsPageState extends ConsumerState<AchievementsPage> {
+  _BadgeFilter _filter = _BadgeFilter.all;
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.sx;
     final all = ref.watch(achievementsProvider);
     return Scaffold(
@@ -646,60 +637,142 @@ class AchievementsPage extends ConsumerWidget {
                 child: switch (all) {
                   AsyncData(:final value) => () {
                       final unlocked = value.where((a) => a.unlocked).toList();
-                      final locked = value.where((a) => !a.unlocked).toList()
-                        ..sort((a, b) => b.progress.compareTo(a.progress));
-                      Widget grid(List<Achievement> list) => GridView.count(
-                            crossAxisCount: 3,
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            mainAxisSpacing: Sx.s16,
-                            crossAxisSpacing: Sx.s12,
-                            childAspectRatio: 0.72,
-                            children: [
-                              for (final a in list)
-                                Tappable(
-                                  onTap: () => showAchievement(context, a),
-                                  child: Column(
-                                    children: [
-                                      AchievementCoin(achievement: a, size: 76),
-                                      const SizedBox(height: Sx.s8),
-                                      Text(a.title,
-                                          textAlign: TextAlign.center,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: SxType.caption(a.unlocked ? c.ink : c.inkMuted, size: 12.5)),
-                                      if (!a.unlocked && a.progressLabel != null)
-                                        Text(a.progressLabel!,
-                                            maxLines: 1, overflow: TextOverflow.ellipsis, style: SxType.caption(c.inkFaint, size: 11)),
-                                    ],
-                                  ),
-                                ),
-                            ],
-                          );
+                      final score = unlocked.fold<int>(0, (s, a) => s + a.score);
+                      final shown = [
+                        for (final a in value)
+                          if (switch (_filter) {
+                            _BadgeFilter.all => true,
+                            _BadgeFilter.unlocked => a.unlocked,
+                            _BadgeFilter.inProgress => !a.unlocked && a.progress > 0,
+                          })
+                            a,
+                      ];
+                      // Shelves keep the catalogue's order.
+                      final shelves = <String, List<Achievement>>{};
+                      for (final a in shown) {
+                        (shelves[a.category] ??= []).add(a);
+                      }
+                      final tiers = {
+                        for (final t in AchievementTier.values) t: unlocked.where((a) => a.tier == t).length,
+                      };
                       return ListView(
                         padding: const EdgeInsets.fromLTRB(Sx.gutter, Sx.s8, Sx.gutter, Sx.s48),
                         children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text('${unlocked.length}', style: SxType.hero(64, c.ink)),
-                              const SizedBox(width: Sx.s8),
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: Sx.s8),
-                                child: Text('of ${value.length} unlocked', style: SxType.body(c.inkMuted)),
+                          SxHeroCard(
+                            ballColor: const Color(0xFFF2C94C),
+                            padding: const EdgeInsets.all(Sx.s20),
+                            child: SxOnHero(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text('${unlocked.length}', style: SxType.hero(64, Colors.white)),
+                                      const SizedBox(width: Sx.s8),
+                                      Flexible(child: Padding(
+                                        padding: const EdgeInsets.only(bottom: Sx.s8),
+                                        child: Text('of ${value.length} unlocked',
+                                            style: SxType.body(Colors.white.withValues(alpha: 0.8))),
+                                      )),
+                                    ],
+                                  ),
+                                  const SizedBox(height: Sx.s8),
+                                  Text('Badge score $score',
+                                      style: SxType.heading(const Color(0xFFF2C94C), size: 16).copyWith(fontWeight: FontWeight.w800)),
+                                  const SizedBox(height: Sx.s16),
+                                  Row(
+                                    children: [
+                                      for (final t in AchievementTier.values)
+                                        Expanded(
+                                          child: Row(
+                                            children: [
+                                              Container(
+                                                width: 14,
+                                                height: 14,
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  gradient: LinearGradient(colors: tierMetal(t)),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Flexible(
+                                                child: Text('${tiers[t]} ${tierLabel(t)}',
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: SxType.caption(Colors.white, size: 12.5)),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
                               ),
+                            ),
+                          ),
+                          const SizedBox(height: Sx.s20),
+                          Wrap(
+                            runSpacing: Sx.s8,
+                            children: [
+                              for (final (f, label) in [
+                                (_BadgeFilter.all, 'All ${value.length}'),
+                                (_BadgeFilter.unlocked, 'Unlocked ${unlocked.length}'),
+                                (_BadgeFilter.inProgress, 'In progress'),
+                              ])
+                                Padding(
+                                  padding: const EdgeInsets.only(right: Sx.s8),
+                                  child: SxChip(
+                                    key: Key('badgeFilter-${f.name}'),
+                                    label: label,
+                                    selected: _filter == f,
+                                    onTap: () => setState(() => _filter = f),
+                                  ),
+                                ),
                             ],
                           ),
-                          const SizedBox(height: Sx.s8),
-                          Text('Rings show the tier: one for bronze, up to four for elite.', style: SxType.caption(c.inkMuted)),
-                          if (unlocked.isNotEmpty) ...[
+                          if (shown.isEmpty)
+                            const EmptyBlock(
+                              icon: Icons.military_tech_outlined,
+                              title: 'Nothing here yet',
+                              message: 'Play a match and your first badges start filling up.',
+                              compact: true,
+                            ),
+                          for (final MapEntry(key: shelf, value: list) in shelves.entries) ...[
                             const SizedBox(height: Sx.section),
-                            const SxSection('Unlocked'),
-                            grid(unlocked),
+                            SxSection('$shelf · ${list.where((a) => a.unlocked).length}/${list.length}'),
+                            GridView.count(
+                              crossAxisCount: 3,
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              mainAxisSpacing: Sx.s16,
+                              crossAxisSpacing: Sx.s12,
+                              childAspectRatio: 0.7,
+                              children: [
+                                for (final a in list)
+                                  Tappable(
+                                    onTap: () => showAchievement(context, a),
+                                    child: Column(
+                                      children: [
+                                        AchievementCoin(achievement: a, size: 74),
+                                        const SizedBox(height: Sx.s8),
+                                        Text(a.title,
+                                            textAlign: TextAlign.center,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: SxType.caption(a.unlocked ? c.ink : c.inkMuted, size: 12.5)
+                                                .copyWith(fontWeight: FontWeight.w700)),
+                                        if (!a.unlocked && a.progressLabel != null)
+                                          Text(a.progressLabel!,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: SxType.caption(c.inkFaint, size: 11)),
+                                      ],
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ],
-                          const SizedBox(height: Sx.section),
-                          const SxSection('Up next'),
-                          grid(locked),
                         ],
                       );
                     }(),

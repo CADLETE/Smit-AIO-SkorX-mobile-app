@@ -45,7 +45,7 @@ void main() {
       expect(dev.theirs, ['You']);
       expect(dev.games, [(5, 11), (8, 11)]);
       expect(dev.won, isFalse);
-      expect(dev.ratingChange, isNull, reason: 'the rating change is the signed-in player\'s');
+      expect(dev.pointsEarned, isNull, reason: 'the rating change is the signed-in player\'s');
       expect(m.seenBy('You'), same(m));
       expect(m.seenBy('Rahul Mehta'), isNull);
     });

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/casual_match/handover/handover_prompt.dart';
+import '../features/casual_match/offline/sync_engine.dart';
 import '../features/settings/app_settings.dart';
 import '../features/workspace/workspace_controller.dart';
 import 'intro/skorx_intro.dart';
@@ -14,6 +15,8 @@ class SkorxApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
+    // Matches scored offline sync from app start, whatever screen is open.
+    ref.listen(casualSyncProvider, (_, _) {});
     // The accent follows the open workspace: cyan for Player, lime for
     // Organizer.
     final accent = ref.watch(workspaceControllerProvider.select((s) => s.current.accent));

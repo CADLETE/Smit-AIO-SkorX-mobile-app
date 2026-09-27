@@ -316,8 +316,9 @@ class PlayerRef {
   final String id;
   final String name;
 
-  /// SkorX rating; null until the player has rated matches.
-  final int? rating;
+  /// SkorX Rating (0–100), which seeding uses; null until the player has
+  /// rated matches.
+  final double? rating;
   final String? city;
 }
 
@@ -388,11 +389,11 @@ class Entry {
   /// "Riya S. / Kamal P.": fits a scoreboard.
   String get shortName => players.map((p) => shortPlayerName(p.name)).join(' / ');
 
-  /// The team's rating: the mean of the rated players.
-  int? get rating {
-    final rated = players.map((p) => p.rating).whereType<int>().toList();
+  /// The team's SkorX Rating: the mean of the rated players.
+  double? get rating {
+    final rated = players.map((p) => p.rating).whereType<double>().toList();
     if (rated.isEmpty) return null;
-    return (rated.reduce((a, b) => a + b) / rated.length).round();
+    return rated.reduce((a, b) => a + b) / rated.length;
   }
 
   bool get inDraw => approval == Approval.approved;

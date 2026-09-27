@@ -1,0 +1,318 @@
+{
+  "feedItem": {
+    "id": "cmujw3s6s007atlyoarmwbe0l",
+    "category": {
+      "id": "referee",
+      "label": "Referee",
+      "icon": "referee",
+      "group": "OFFICIALS"
+    },
+    "subcategory": {
+      "id": "referee.referee",
+      "label": "Referee"
+    },
+    "title": "Referee needed for SPT",
+    "description": null,
+    "postedBy": {
+      "kind": "self",
+      "name": "Fixture Poster",
+      "imageUrl": null,
+      "organizationId": null,
+      "tournamentId": null,
+      "userId": "cmujw3rt8006ytlyozi3aqj9a",
+      "playerProfileId": "cmujw3rta0070tlyokeaf2toq"
+    },
+    "place": {
+      "name": "CADLETE Club",
+      "city": "Ahmedabad",
+      "lat": 23.0225,
+      "lng": 72.5714,
+      "approximate": true
+    },
+    "distanceKm": 0,
+    "startsAt": "2026-09-29T14:04:21.718Z",
+    "endsAt": "2026-09-29T20:04:21.718Z",
+    "durationMins": 360,
+    "whenLabel": "Tue 29 Sep 7:34 PM",
+    "quantityRequired": 2,
+    "quantityFilled": 1,
+    "quantityLabel": "Referees needed",
+    "skillLevels": [],
+    "gender": "any",
+    "ageGroup": "any",
+    "payment": {
+      "type": "paid",
+      "amount": 1500,
+      "unit": "per_day"
+    },
+    "details": {
+      "courts": 4,
+      "experience": "Certified"
+    },
+    "detailLabels": {
+      "courts": "Courts",
+      "matches": "Matches",
+      "experience": "Experience"
+    },
+    "tournament": null,
+    "visibility": "public",
+    "status": "partially_filled",
+    "hidden": false,
+    "expiresAt": "2026-09-29T20:04:21.718Z",
+    "createdAt": "2026-09-27T14:04:21.749Z",
+    "responseCount": 1,
+    "viewer": {
+      "isOwner": false,
+      "saved": false,
+      "response": {
+        "id": "cmujw3sdl007ltlyoi4o83q2d",
+        "status": "accepted"
+      }
+    },
+    "shareUrl": "https://skorx.in/looking-for/cmujw3s6s007atlyoarmwbe0l"
+  },
+  "ownerDetail": {
+    "id": "cmujw3s6s007atlyoarmwbe0l",
+    "category": {
+      "id": "referee",
+      "label": "Referee",
+      "icon": "referee",
+      "group": "OFFICIALS"
+    },
+    "subcategory": {
+      "id": "referee.referee",
+      "label": "Referee"
+    },
+    "title": "Referee needed for SPT",
+    "description": null,
+    "postedBy": {
+      "kind": "self",
+      "name": "Fixture Poster",
+      "imageUrl": null,
+      "organizationId": null,
+      "tournamentId": null,
+      "userId": "cmujw3rt8006ytlyozi3aqj9a",
+      "playerProfileId": "cmujw3rta0070tlyokeaf2toq"
+    },
+    "place": {
+      "name": "CADLETE Club",
+      "city": "Ahmedabad",
+      "lat": 23.0225,
+      "lng": 72.5714,
+      "approximate": true
+    },
+    "distanceKm": null,
+    "startsAt": "2026-09-29T14:04:21.718Z",
+    "endsAt": "2026-09-29T20:04:21.718Z",
+    "durationMins": 360,
+    "whenLabel": "Tue 29 Sep 7:34 PM",
+    "quantityRequired": 2,
+    "quantityFilled": 1,
+    "quantityLabel": "Referees needed",
+    "skillLevels": [],
+    "gender": "any",
+    "ageGroup": "any",
+    "payment": {
+      "type": "paid",
+      "amount": 1500,
+      "unit": "per_day"
+    },
+    "details": {
+      "courts": 4,
+      "experience": "Certified"
+    },
+    "detailLabels": {
+      "courts": "Courts",
+      "matches": "Matches",
+      "experience": "Experience"
+    },
+    "tournament": null,
+    "visibility": "public",
+    "status": "partially_filled",
+    "hidden": false,
+    "expiresAt": "2026-09-29T20:04:21.718Z",
+    "createdAt": "2026-09-27T14:04:21.749Z",
+    "responseCount": 1,
+    "viewCount": 0,
+    "matchCount": 3,
+    "viewer": {
+      "isOwner": true,
+      "saved": false,
+      "response": null
+    },
+    "shareUrl": "https://skorx.in/looking-for/cmujw3s6s007atlyoarmwbe0l",
+    "matching": {
+      "count": 3,
+      "alerted": 2,
+      "waitingForDigest": 1,
+      "summary": [
+        {
+          "label": "Registered referee",
+          "count": 3
+        },
+        {
+          "label": "In Ahmedabad",
+          "count": 3
+        }
+      ]
+    }
+  },
+  "response": {
+    "id": "cmujw3sdl007ltlyoi4o83q2d",
+    "status": "accepted",
+    "message": "Available!",
+    "availabilityConfirmed": true,
+    "respondedAt": "2026-09-27T14:04:21.993Z",
+    "decidedAt": "2026-09-27T14:04:22.064Z",
+    "person": {
+      "userId": "cmujw3s4i0074tlyoqzwzk3wi",
+      "playerProfileId": "cmujw3s4j0076tlyo4gucm5oq",
+      "name": "Fixture Responder",
+      "photoUrl": null,
+      "city": "Ahmedabad",
+      "skillLevel": null,
+      "roles": [],
+      "matchesPlayed": 0,
+      "recentMatches": 0
+    },
+    "contact": {
+      "iShared": false,
+      "theyShared": true,
+      "phone": "+919786088812"
+    }
+  },
+  "alerts": {
+    "mode": "instant",
+    "categories": [
+      "player",
+      "match",
+      "team",
+      "tournament"
+    ],
+    "radiusKm": 25,
+    "city": "Ahmedabad",
+    "lat": null,
+    "lng": null,
+    "digestHour": 19,
+    "dailyCap": 5,
+    "roles": [],
+    "isDefault": true,
+    "knownCities": [
+      "Ahmedabad",
+      "Gandhinagar",
+      "Vadodara",
+      "Surat",
+      "Rajkot",
+      "Bhavnagar",
+      "Anand",
+      "Mumbai",
+      "Navi Mumbai",
+      "Thane",
+      "Pune",
+      "Nagpur",
+      "Nashik",
+      "Delhi",
+      "New Delhi",
+      "Gurugram",
+      "Gurgaon",
+      "Noida",
+      "Faridabad",
+      "Ghaziabad",
+      "Chandigarh",
+      "Jaipur",
+      "Udaipur",
+      "Jodhpur",
+      "Indore",
+      "Bhopal",
+      "Lucknow",
+      "Kanpur",
+      "Bengaluru",
+      "Bangalore",
+      "Mysuru",
+      "Chennai",
+      "Coimbatore",
+      "Hyderabad",
+      "Secunderabad",
+      "Visakhapatnam",
+      "Kochi",
+      "Thiruvananthapuram",
+      "Goa",
+      "Panaji",
+      "Kolkata",
+      "Bhubaneswar",
+      "Patna",
+      "Guwahati",
+      "Dehradun",
+      "Amritsar",
+      "Ludhiana",
+      "Singapore",
+      "Dubai",
+      "Abu Dhabi",
+      "Sharjah"
+    ]
+  },
+  "category": {
+    "id": "referee",
+    "label": "Referee",
+    "group": "OFFICIALS",
+    "icon": "referee",
+    "tagline": "Officials for your event",
+    "form": {
+      "roles": [
+        "referee",
+        "official"
+      ],
+      "fields": [
+        "when",
+        "endTime",
+        "duration",
+        "place",
+        "quantity",
+        "payment",
+        "tournament"
+      ],
+      "details": [
+        {
+          "key": "courts",
+          "max": 60,
+          "min": 1,
+          "type": "number",
+          "label": "Courts"
+        },
+        {
+          "key": "matches",
+          "max": 500,
+          "min": 1,
+          "type": "number",
+          "label": "Matches"
+        },
+        {
+          "key": "experience",
+          "type": "choice",
+          "label": "Experience",
+          "options": [
+            "Any",
+            "Some events",
+            "Certified"
+          ]
+        }
+      ],
+      "payment": "paid",
+      "required": [
+        "when",
+        "quantity"
+      ],
+      "quantityLabel": "Referees needed"
+    },
+    "subcategories": [
+      {
+        "id": "referee.referee",
+        "label": "Referee"
+      },
+      {
+        "id": "referee.official",
+        "label": "Tournament official"
+      }
+    ]
+  }
+}

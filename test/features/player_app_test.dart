@@ -67,6 +67,42 @@ Future<void> tapNav(WidgetTester tester, String label) async {
   await tester.pumpAndSettle();
 }
 
+/// Every Community screen, for the screen-size checks.
+final communityScreens = [
+  '/player/community',
+  '/player/community/search',
+  '/player/community/search?q=referee%20near%20Ahmedabad',
+  for (final s in ['players', 'officials', 'organizers', 'training', 'places', 'media', 'business'])
+    '/player/community/browse/$s',
+  '/player/community/people/cm-rohan',
+  '/player/community/people/cm-kavya',
+  '/player/community/places/pl-cadlete',
+  '/player/community/places/pl-smashacad',
+  '/player/community/places/pl-kitchenline',
+  '/player/community/groups',
+  '/player/community/groups/g-guj-refs',
+  '/player/community/messages',
+  '/player/community/messages/cv-kavya',
+  '/player/community/me',
+  '/player/community/connections?tab=requests',
+  '/player/community/saved',
+  '/player/community/events',
+  '/player/community/events/ev-clinic',
+  '/player/community/events/ev-women',
+  '/player/community/events/new',
+  '/player/community/posts',
+  '/player/community/posts/ps-win',
+  '/player/community/groups/g-bodakdev',
+];
+
+Future<void> openExplore(WidgetTester tester) => tapNav(tester, 'Explore');
+
+/// Community is a module inside the Explore tab.
+Future<void> openCommunity(WidgetTester tester) async {
+  await tapNav(tester, 'Explore');
+  await tapVisible(tester, find.byKey(const Key('explore-community')));
+}
+
 /// The page's main, vertical scroll view.
 Finder get pageScroll => find.byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down).first;
 
@@ -111,10 +147,16 @@ void main() {
     '/player/paddle/tournament/t-open',
     '/player/tournament/t-spt-amd?view=matches',
     '/player/explore',
+    ...communityScreens,
     '/player/explore?view=courts',
+    '/player/explore/tournaments',
+    '/player/explore/players',
+    '/player/explore/leaderboards',
     '/player/paddle',
     '/player/profile',
     '/player/matches/lg-qf1',
+    '/player/matches/lg-qf3',
+    '/player/matches/fr-live',
     '/player/matches/lg-sf1',
     '/player/matches/mo-f',
     '/player/matches/fr-x',
@@ -169,6 +211,9 @@ void main() {
         '/player/matches?view=results',
         '/player/matches?view=tournaments',
         '/player/explore',
+        ...communityScreens,
+        '/player/explore/tournaments',
+        '/player/explore/players',
         '/player/paddle',
         '/player/paddle/matches',
         '/player/players/me',
@@ -201,8 +246,9 @@ void main() {
       for (final key in ['quickStartMatch', 'quickTournaments', 'quickMatches']) {
         expect(find.byKey(Key(key)), findsOneWidget, reason: key);
       }
-      final sxp = container.read(sampleUniverseProvider).season.currentRating;
-      expect(find.text('$sxp'), findsWidgets, reason: 'SkorX Points in the header and the snapshot');
+      final season = container.read(sampleUniverseProvider).season;
+      expect(find.text(ratingText(season.career.overallSpi)), findsWidgets, reason: 'SkorX Rating in the header and the snapshot');
+      expect(find.text(sxpText(season.currentPoints)), findsOneWidget, reason: 'SkorX Points in the snapshot');
     });
 
     testWidgets('a new player gets a welcome with three ways in, not empty cards', (tester) async {
@@ -237,7 +283,7 @@ void main() {
       await tapVisible(tester, find.byKey(const Key('lastResult')));
       expect(find.text('LOST 0–2'), findsOneWidget);
       expect(find.text('12'), findsWidgets, reason: 'the scoreboard shows the games');
-      expect(find.byKey(const Key('ratingChange')), findsOneWidget);
+      expect(find.byKey(const Key('matchImpact')), findsOneWidget);
 
       // 4. Its tournament.
       await tapVisible(tester, find.byKey(const Key('viewTournament')));
@@ -256,13 +302,22 @@ void main() {
       expect(find.byKey(const Key('headerRating')), findsOneWidget);
 
       await tapNav(tester, 'My Paddle');
+      // Achievements have their own highlighted card, above the rating.
+      await tapVisible(tester, find.byKey(const Key('allAchievements')));
+      expect(find.text('Achievements'), findsOneWidget);
+      expect(find.textContaining('Getting started ·'), findsOneWidget, reason: 'badges sit on shelves by kind');
+      await tester.tap(find.byKey(const Key('badgeFilter-unlocked')));
+      await tester.pumpAndSettle();
+      expect(find.text('Bagel'), findsNothing, reason: 'not unlocked yet');
+      await tester.tap(find.byKey(const Key('back')));
+      await tester.pumpAndSettle();
+
       await tester.scrollUntilVisible(find.byKey(const Key('ratingSection')), 300, scrollable: pageScroll);
       await tester.scrollUntilVisible(find.byKey(const Key('rankingSection')), 300, scrollable: pageScroll);
       expect(find.text('#14'), findsOneWidget);
-
-      await tapVisible(tester, find.text('All'));
-      expect(find.text('Achievements'), findsOneWidget);
-      expect(find.text('Up next'), findsOneWidget);
+      await tester.scrollUntilVisible(find.byKey(const Key('pointsSection')), 300, scrollable: pageScroll);
+      expect(find.byKey(const Key('skorxBands')), findsOneWidget, reason: 'the rating shows its band');
+      expect(find.byKey(const Key('arcLevel')), findsOneWidget, reason: 'the level sits with the points');
     });
 
     testWidgets('9: find a tournament and register', (tester) async {
@@ -290,7 +345,7 @@ void main() {
       usePhone(tester);
       final semantics = tester.ensureSemantics();
       await pumpSignedIn(tester);
-      await tapNav(tester, 'Explore');
+      await openExplore(tester);
       await tapVisible(tester, find.text('Courts'));
       expect(find.byKey(const Key('cityPicker')), findsOneWidget);
 
@@ -298,18 +353,17 @@ void main() {
       await tester.tap(find.bySemanticsLabel('Tomorrow'));
       await tester.pumpAndSettle();
       await tapVisible(tester, find.text('Pickle Blitz Arena'));
-      await tester.tap(find.byKey(const Key('bookCourt')));
-      await tester.pumpAndSettle();
 
+      // Booking is on the venue page itself: a time, then a court.
       final continueButton = find.byKey(const Key('continueBooking'));
       expect(tester.widget<SxButton>(continueButton).onPressed, isNull, reason: 'nothing picked yet');
-      await tester.tap(find.bySemanticsLabel(RegExp(r'courts? free$')).first);
+      final time = find.bySemanticsLabel(RegExp(r'courts? free$')).first;
+      await tester.ensureVisible(time);
       await tester.pumpAndSettle();
-      final court = find.bySemanticsLabel(RegExp(r'^Court \d+, free$')).first;
-      await tester.ensureVisible(court);
-      await tester.tap(court);
+      await tester.tap(time);
       await tester.pumpAndSettle();
-      await tester.ensureVisible(continueButton);
+      expect(tester.widget<SxButton>(continueButton).onPressed, isNotNull, reason: 'a free court is picked for you');
+      expect(find.bySemanticsLabel(RegExp(r'^Court \d+, free$')), findsWidgets, reason: 'the court map shows what is free');
       await tester.tap(continueButton);
       await tester.pumpAndSettle();
 
@@ -356,7 +410,7 @@ void main() {
     expect(page.matches.every((m) => m.involvesMe && m.tournament == null), isTrue, reason: 'only my casual matches');
   });
 
-  testWidgets('reading notifications clears the bell', (tester) async {
+  testWidgets('reading notifications and answering match requests clears the bell', (tester) async {
     usePhone(tester);
     await pumpSignedIn(tester);
     final bell = find.byKey(const Key('notificationsBell'));
@@ -365,6 +419,17 @@ void main() {
     await tester.tap(bell);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('markAllRead')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('back')));
+    await tester.pumpAndSettle();
+    // Match requests keep the dot until they are answered.
+    expect(tester.widget<SxIconAction>(bell).dot, isTrue);
+
+    await tester.tap(bell);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('acceptAll')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirmAcceptAll')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('back')));
     await tester.pumpAndSettle();
@@ -390,9 +455,9 @@ void main() {
 
     test('rating changes add up to the rating in the header', () {
       final rated = mine.where((m) => m.isCompleted).toList()..sort((a, b) => a.playedAt.compareTo(b.playedAt));
-      expect(rated.last.ratingAfter, season.currentRating);
+      expect(rated.last.pointsAfter, season.currentPoints);
       for (var i = 1; i < rated.length; i++) {
-        expect(rated[i].ratingBefore, rated[i - 1].ratingAfter, reason: rated[i].id);
+        expect(rated[i].pointsBefore, rated[i - 1].pointsAfter, reason: rated[i].id);
       }
     });
 
@@ -492,7 +557,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('playerQuickView')), findsOneWidget);
       expect(find.textContaining('SKX-10611'), findsOneWidget);
-      expect(find.text('SKORX POINTS'), findsOneWidget);
+      expect(find.text('SKORX RATING'), findsOneWidget);
       expect(find.text('FORM'), findsOneWidget);
       expect(find.byKey(const Key('quickViewHeadToHead')), findsOneWidget, reason: 'they have played the signed-in player');
 
@@ -530,6 +595,11 @@ void main() {
       await tapNav(tester, 'Matches');
       expect(find.byKey(const Key('liveNow')), findsOneWidget);
       expect(find.byKey(const Key('fromTournaments')), findsOneWidget);
+      await tester.scrollUntilVisible(find.byKey(const Key('latestResults')), 300, scrollable: pageScroll);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('latestResults')), findsOneWidget, reason: 'results sit side by side like Live now');
+      await tester.ensureVisible(find.byKey(const Key('matchFilters')));
+      await tester.pumpAndSettle();
 
       // Location from the filter sheet: India › Maharashtra.
       await tester.tap(find.byKey(const Key('matchFilters')));

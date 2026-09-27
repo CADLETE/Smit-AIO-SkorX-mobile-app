@@ -31,6 +31,40 @@ class CourtBanner {
   final bool strong;
 }
 
+/// The call a recorded rally makes over the net, if any: game won, change
+/// ends, side out, second server, game or match point. Shared by the scorer
+/// and everyone watching, so both see the same moments.
+CourtBanner? rallyBanner(LocalMatch match, LiveStep step, int token) {
+  final events = step.events;
+  final winner = step.rallyWinner;
+  if (events.contains(LiveEvent.matchWon)) return null;
+  if (events.contains(LiveEvent.gameWon) && winner != null) {
+    final g = step.score.games[step.score.games.length - 2];
+    return CourtBanner('GAME ${step.score.gameNumber - 1}',
+        detail: '${match.teamLabel(winner)} ${g.of(winner)}–${g.of(winner.opponent)}', token: token, strong: true);
+  }
+  if (events.contains(LiveEvent.endsSwitched)) {
+    return CourtBanner('CHANGE ENDS', detail: 'Halfway in the deciding game', token: token, strong: true);
+  }
+  if (events.contains(LiveEvent.sideOut)) {
+    return CourtBanner('SIDE OUT', detail: '${match.teamLabel(step.court.serveSide)} to serve', token: token);
+  }
+  if (events.contains(LiveEvent.secondServer)) {
+    final name = match.names(step.court.serveSide)[step.court.serverIndex];
+    return CourtBanner('2ND SERVER', detail: '${name.split(' ').first} serves', token: token);
+  }
+  if (events.contains(LiveEvent.serveCorrected)) return CourtBanner('SERVE CORRECTED', token: token);
+  CourtBanner? banner;
+  for (final side in Side.values) {
+    if (isMatchPoint(match, step.score, side)) {
+      banner = CourtBanner('MATCH POINT', detail: match.teamLabel(side), token: token, strong: true);
+    } else if (isGamePoint(match, step.score, side)) {
+      banner ??= CourtBanner('GAME POINT', detail: match.teamLabel(side), token: token);
+    }
+  }
+  return banner;
+}
+
 /// The live court from above: the interaction surface. Each team's half is
 /// one big button ("this side won the rally"); players stand in their real
 /// service courts and slide when they change courts; the ball and SERVE tag
@@ -39,6 +73,10 @@ class CourtBanner {
 /// It is laid out as a landscape court (ends left and right). In portrait,
 /// [vertical] turns the court a quarter clockwise so the ends are top and
 /// bottom, and turns every label back so text stays upright.
+///
+/// [spectator] draws the same court for someone watching: nothing to tap,
+/// no tap hints, and smaller player markers for a court that shares the
+/// screen with the rest of the match.
 class LiveCourtView extends StatelessWidget {
   const LiveCourtView({
     super.key,
@@ -49,6 +87,7 @@ class LiveCourtView extends StatelessWidget {
     required this.enabled,
     this.flash,
     this.banner,
+    this.spectator = false,
   });
 
   final LocalMatch match;
@@ -58,6 +97,7 @@ class LiveCourtView extends StatelessWidget {
   final bool enabled;
   final CourtFlash? flash;
   final CourtBanner? banner;
+  final bool spectator;
 
   static const move = Duration(milliseconds: 380);
 
@@ -116,7 +156,7 @@ class _ModelCourt extends StatelessWidget {
     final from = spot(court.serveSide, court.serverIndex);
     final to = spot(receiving, court.receiverIndex);
     final over = match.isOver;
-    const marker = Size(104, 104);
+    final marker = view.spectator && !view.vertical ? const Size(84, 84) : const Size(104, 104);
     final m = _model(marker);
     const hint = Size(150, 64);
     final h = _model(hint);
@@ -197,7 +237,7 @@ class _ModelCourt extends StatelessWidget {
             height: size.height,
             child: _TapHalf(
               side: side,
-              enabled: view.enabled && !over,
+              enabled: view.enabled && !over && !view.spectator,
               label: '${match.teamLabel(side)} won the rally. ${rallyActionLabel(match, score, side)}',
               onTap: () => view.onRally(side),
               flash: view.flash?.side == side ? view.flash : null,
@@ -215,7 +255,7 @@ class _ModelCourt extends StatelessWidget {
               top: p.dy - h.height / 2,
               width: h.width,
               height: h.height,
-              child: IgnorePointer(child: _upright(_BaselineHint(match: match, score: score, side: side))),
+              child: IgnorePointer(child: _upright(_BaselineHint(match: match, score: score, side: side, tapHint: !view.spectator))),
             );
           }(),
 
@@ -332,11 +372,14 @@ class _TapHalf extends StatelessWidget {
 }
 
 class _BaselineHint extends StatelessWidget {
-  const _BaselineHint({required this.match, required this.score, required this.side});
+  const _BaselineHint({required this.match, required this.score, required this.side, this.tapHint = true});
 
   final LocalMatch match;
   final ScoreState score;
   final Side side;
+
+  /// What a tap does, for the scorer; people watching only see the calls.
+  final bool tapHint;
 
   @override
   Widget build(BuildContext context) {
@@ -356,7 +399,7 @@ class _BaselineHint extends StatelessWidget {
               decoration: BoxDecoration(gradient: c.brand, borderRadius: BorderRadius.circular(10)),
               child: Text(matchPoint ? 'MATCH POINT' : 'GAME POINT', style: SxType.label(c.onVolt, size: 11)),
             ),
-          if (!match.isOver) ...[
+          if (tapHint && !match.isOver) ...[
             const SizedBox(height: 4),
             Container(
               padding: const EdgeInsets.fromLTRB(7, 4, 10, 4),

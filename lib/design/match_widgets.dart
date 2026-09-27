@@ -105,7 +105,7 @@ class MatchRow extends StatelessWidget {
                           if (m.isUpcoming) Icon(Icons.chevron_right_rounded, color: c.inkFaint),
                         ],
                       ),
-                      if (contextLine.isNotEmpty || (m.ratingChange != null && m.involvesMe)) ...[
+                      if (contextLine.isNotEmpty || (m.pointsEarned != null && m.involvesMe)) ...[
                         const SizedBox(height: Sx.s8),
                         Padding(
                           padding: const EdgeInsets.only(left: 58),
@@ -119,9 +119,9 @@ class MatchRow extends StatelessWidget {
                                   style: SxType.caption(c.inkMuted, size: 12.5),
                                 ),
                               ),
-                              if (m.ratingChange != null && m.involvesMe) ...[
+                              if (m.pointsEarned != null && m.involvesMe) ...[
                                 const SizedBox(width: Sx.s12),
-                                RatingDelta(m.ratingChange!, size: 14),
+                                RatingDelta(m.pointsEarned!, size: 14, digits: 2, unit: ' SXP', what: 'SkorX Points'),
                               ],
                             ],
                           ),

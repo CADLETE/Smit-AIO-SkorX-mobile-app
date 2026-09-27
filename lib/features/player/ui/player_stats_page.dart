@@ -7,6 +7,9 @@ import '../../../design/design.dart';
 import '../../../shared/format.dart';
 import '../../matches/data/match_repository.dart';
 import '../../matches/ui/match_card.dart' show LoadMoreTrigger;
+import '../../subscription/data/plans.dart';
+import '../../subscription/subscription_controller.dart';
+import '../../subscription/ui/pro_widgets.dart';
 import '../data/player_stats.dart';
 import 'player_quick_view.dart';
 
@@ -98,6 +101,20 @@ class _PlayerStatsPageState extends ConsumerState<PlayerStatsPage> {
   List<Widget> _sections(BuildContext context, PlayerProfile p, PlayerStats s) {
     final c = context.sx;
     final history = p.isMe ? ref.watch(ratingHistoryProvider).value ?? const [] : const [];
+    // Another player's full record is Rival Player Stats; my own trends are
+    // Match Analytics. Both are SkorX Pro.
+    final rivals = ref.watch(canAccessProvider(ProFeature.rivalStats));
+    final analytics = ref.watch(canAccessProvider(ProFeature.matchAnalytics));
+    if (!p.isMe && !rivals) {
+      return [
+        _Overview(profile: p, stats: s),
+        const SizedBox(height: Sx.section),
+        ProLockedPanel(
+          feature: ProFeature.rivalStats,
+          message: 'See ${p.name.split(' ').first}’s full record, form, tournaments, rivals and every match, and your head-to-head.',
+        ),
+      ];
+    }
     return [
       _Overview(profile: p, stats: s),
       if (s.formats.isNotEmpty) ...[const SizedBox(height: Sx.s16), FormatTiles(formats: s.formats)],
@@ -114,21 +131,41 @@ class _PlayerStatsPageState extends ConsumerState<PlayerStatsPage> {
         _FormSection(stats: s),
         const SizedBox(height: Sx.section),
         const SxSection('Win / loss trend'),
-        TrendBars(form: s.form),
-        if (history.length > 1) ...[
-          const SizedBox(height: Sx.s24),
-          Text('SKORX POINTS', style: SxType.label(c.inkMuted, size: 12)),
-          const SizedBox(height: Sx.s8),
-          RatingGraph(values: [for (final h in history.skip(history.length > 20 ? history.length - 20 : 0)) h.rating], height: 96),
+        if (!analytics)
+          const ProLockedPanel(
+            feature: ProFeature.matchAnalytics,
+            message: 'Your win / loss trend, points graph and splits by format, partner and opponent.',
+          )
+        else ...[
+          TrendBars(form: s.form),
+          if (history.length > 1) ...[
+            const SizedBox(height: Sx.s24),
+            Text('SKORX RATING', style: SxType.label(c.inkMuted, size: 12)),
+            const SizedBox(height: Sx.s8),
+            RatingGraph(
+              values: [for (final h in history.skip(history.length > 20 ? history.length - 20 : 0)) h.rating],
+              height: 96,
+              minSpan: 4,
+              label: 'SkorX Rating',
+            ),
+          ],
+          const SizedBox(height: Sx.section),
+          _SplitSection(stats: s),
         ],
-        const SizedBox(height: Sx.section),
-        _SplitSection(stats: s),
         if (s.tournaments.isNotEmpty) ...[
           const SizedBox(height: Sx.section),
           _TournamentsSection(runs: s.tournaments),
         ],
         const SizedBox(height: Sx.section),
-        _RivalsSection(playerId: p.id, name: p.name),
+        if (rivals)
+          _RivalsSection(playerId: p.id, name: p.name)
+        else ...[
+          const SxSection('Rivals'),
+          const ProLockedPanel(
+            feature: ProFeature.rivalStats,
+            message: 'The players you meet most, your record against each, and every match you played them.',
+          ),
+        ],
         const SizedBox(height: Sx.section),
         const SxSection('Recent matches'),
         _RecentMatches(playerId: p.id),
@@ -165,15 +202,23 @@ class _Overview extends StatelessWidget {
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
                       alignment: Alignment.bottomLeft,
-                      child: profile.points == null
-                          ? Text('—', style: SxType.hero(72, c.ink))
-                          : CountUp(value: profile.points!, style: SxType.hero(72, c.ink)),
+                      child: Text(profile.rating == null ? '—' : ratingText(profile.rating!),
+                          style: SxType.hero(72, c.ink)),
                     ),
                   ),
                   const SizedBox(width: Sx.s12),
                   Padding(
                     padding: const EdgeInsets.only(bottom: Sx.s8),
-                    child: Text('SKORX\nPOINTS', style: SxType.label(c.inkMuted, size: 12)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('SKORX\nRATING', style: SxType.label(c.inkMuted, size: 12)),
+                        if (profile.points != null) ...[
+                          const SizedBox(height: Sx.s4),
+                          Text('${sxpText(profile.points!)} SkorX Points', style: SxType.caption(c.inkMuted, size: 12)),
+                        ],
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -535,7 +580,14 @@ class HeadToHeadPage extends ConsumerWidget {
               SxBackBar(title: 'Head-to-head', onBack: () => context.canPop() ? context.pop() : context.go(playerStatsPath(a))),
               Expanded(
                 child: switch (h2h) {
-                  AsyncData(:final value) => _HeadToHeadBody(h2h: value),
+                  AsyncData(:final value) => ProGate(
+                      feature: ProFeature.rivalStats,
+                      locked: const Padding(
+                        padding: EdgeInsets.all(Sx.gutter),
+                        child: ProLockedPanel(feature: ProFeature.rivalStats),
+                      ),
+                      child: _HeadToHeadBody(h2h: value),
+                    ),
                   AsyncError() => ErrorBlock(message: 'This head-to-head did not load.', onRetry: () => ref.invalidate(headToHeadProvider((a, b)))),
                   _ => const Padding(
                       padding: EdgeInsets.all(Sx.gutter),

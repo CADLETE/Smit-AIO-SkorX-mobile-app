@@ -21,8 +21,8 @@ Finder navLabel(String label) => find.descendant(
 
 /// Switches mode and waits out the short "… MODE" transition, which holds
 /// no animation for settle to see. From Player it goes through Profile's
-/// "Switch to Organiser" card; from Organiser through its Profile tab. With
-/// one other workspace the card switches straight away; otherwise it opens
+/// Player | Organiser switch; from Organiser through its Profile tab. With
+/// one other workspace the switch goes straight there; otherwise it opens
 /// the picker and [title] is chosen.
 /// The last tab: Account in Player, Profile in Organizer.
 Finder get accountTab => navLabel('Account').evaluate().isNotEmpty ? navLabel('Account') : navLabel('Profile');
@@ -34,9 +34,8 @@ Future<void> switchWorkspaceTo(WidgetTester tester, String title) async {
   if (card.evaluate().isNotEmpty) {
     await tester.tap(card);
   } else {
-    final row = find.byKey(Key(title == 'Player' ? 'switchToPlayer' : 'switchOrganisation'));
-    await revealAboveNavBar(tester, row);
-    await tester.tap(row);
+    // The switch sits under the organisation header, above the fold.
+    await tester.tap(find.byKey(Key(title == 'Player' ? 'switchToPlayer' : 'switchOrganisation')));
   }
   await tester.pumpAndSettle();
   if (find.text('SWITCH MODE').evaluate().isNotEmpty) {
@@ -44,13 +43,6 @@ Future<void> switchWorkspaceTo(WidgetTester tester, String title) async {
     await tester.pumpAndSettle();
   }
   await tester.pump(const Duration(milliseconds: 600));
-  await tester.pumpAndSettle();
-}
-
-/// Scrolls [row] into view and clear of the floating bottom bar.
-Future<void> revealAboveNavBar(WidgetTester tester, Finder row) async {
-  await tester.scrollUntilVisible(row, 200);
-  await tester.drag(row, const Offset(0, -300));
   await tester.pumpAndSettle();
 }
 
@@ -107,18 +99,24 @@ void main() {
     await tester.tap(accountTab);
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(find.text('All tournaments'), 200);
     expect(find.text('All tournaments'), findsOneWidget);
     expect(find.text('Payments'), findsNothing);
     expect(find.text('Settings'), findsNothing);
   });
 
-  testWidgets('a plain player has no mode switch', (tester) async {
+  testWidgets('a plain player is shown how to become an organiser', (tester) async {
     await pumpApp(tester, FakeAuthRepository(stored: RestoredUser(user(), fromCache: false)));
     // The Home avatar opens Profile.
     await tester.tap(find.byKey(const Key('homeAvatar')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('idCard')), findsOneWidget);
-    expect(find.byKey(const Key('switchModeCard')), findsNothing);
+    expect(find.text('Run tournaments'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('switchModeCard')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('organiserIntro')), findsOneWidget, reason: 'no organisation to switch to yet');
+    await tester.tap(find.text('Not now'));
+    await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.byKey(const Key('signOut')), 200);
     expect(find.text('Sign out'), findsOneWidget);
   });
@@ -146,7 +144,7 @@ void main() {
     }
     await tester.tap(accountTab);
     await frames();
-    expect(find.text('Switch to Organiser'), findsOneWidget);
+    expect(find.bySemanticsLabel('Switch to Organiser'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('switchModeCard')));
     await tester.pump();
@@ -161,9 +159,6 @@ void main() {
     expect(find.byKey(const Key('liveCommandCard')), findsOneWidget, reason: 'the live tournament leads the home');
 
     await tester.tap(accountTab);
-    await frames();
-    await tester.scrollUntilVisible(find.byKey(const Key('switchToPlayer')), 200);
-    await tester.drag(find.byKey(const Key('switchToPlayer')), const Offset(0, -300));
     await frames();
     await tester.tap(find.byKey(const Key('switchToPlayer')));
     await tester.pump();

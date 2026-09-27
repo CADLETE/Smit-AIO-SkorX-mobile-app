@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -12,6 +12,9 @@ import 'data/match_code.dart';
 import 'data/match_setup.dart';
 import 'handover/scoring_handover.dart';
 import 'local_match.dart';
+import 'offline/match_store.dart';
+import 'played_matches.dart';
+import 'verification/verification_controller.dart';
 
 /// What a player chose on the create-match screen.
 class NewMatch {
@@ -55,7 +58,6 @@ final scoringControllerProvider = NotifierProvider<ScoringController, LocalMatch
 /// written to the phone before the screen updates, so closing the app, a
 /// crash or a flat battery never loses a point.
 class ScoringController extends Notifier<LocalMatch?> {
-  static const _storageKey = 'skorx.activeMatch';
   static const _uuid = Uuid();
 
   /// Resolves once the saved match (if any) has been read.
@@ -133,14 +135,22 @@ class ScoringController extends Notifier<LocalMatch?> {
   }
 
   Future<void> _restore() async {
-    final raw = await ref.read(preferencesProvider).getString(_storageKey);
-    if (raw == null) return;
-    try {
-      state = LocalMatch.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-    } catch (_) {
-      // A saved match this version cannot read is dropped rather than
-      // blocking the app. It stays in storage until the next match replaces it.
-    }
+    // A saved match this version cannot read is set aside by the store
+    // rather than blocking the app.
+    final match = await ref.read(matchStoreProvider).readActive();
+    if (match == null || !ref.mounted) return;
+    state = match;
+    // Finished before results were kept: add it now.
+    if (match.isOver) await ref.read(playedMatchesProvider.notifier).record(match);
+  }
+
+  /// Conflict resolution ("Use SkorX's score"): the match carries on from
+  /// SkorX's events instead of this phone's.
+  Future<void> replaceEvents(List<RecordedEvent> events) async {
+    final match = state;
+    if (match == null) return;
+    final next = match.copyWith(events: events, reopen: true);
+    await _save(next.score.isOver ? next.copyWith(finishedAt: match.finishedAt ?? DateTime.now()) : next);
   }
 
   Future<void> start(NewMatch match) async {
@@ -170,6 +180,16 @@ class ScoringController extends Notifier<LocalMatch?> {
       details: match.details,
       startedAt: now,
     ));
+    // SkorX asks the other players to confirm straight away. Scoring never
+    // waits for it: offline, it is sent later.
+    final started = state;
+    if (started != null) unawaited(ref.read(casualSyncProvider.notifier).track(started));
+    // Who played is remembered, so the next match can be set up offline.
+    unawaited(ref.read(knownPlayersProvider.notifier).remember([
+      for (final (names, ids) in [(match.sideA, match.details.sideAIds), (match.sideB, match.details.sideBIds)])
+        for (final (i, name) in names.indexed)
+          if (i < ids.length) MatchPlayer(id: ids[i], name: name),
+    ]));
   }
 
   /// Someone else takes over scoring on this phone. The match carries on
@@ -266,12 +286,23 @@ class ScoringController extends Notifier<LocalMatch?> {
 
   /// Closes the finished match so a new one can start.
   Future<void> close() async {
-    await ref.read(preferencesProvider).remove(_storageKey);
+    await ref.read(matchStoreProvider).clearActive();
     state = null;
   }
 
   Future<void> _save(LocalMatch match) async {
-    await ref.read(preferencesProvider).setString(_storageKey, jsonEncode(match.toJson()));
+    final wasOver = state?.id == match.id && state!.isOver;
+    await ref.read(matchStoreProvider).writeActive(match);
     state = match;
+    // A finished match joins the player's results; undoing the winning point takes it out again.
+    final played = ref.read(playedMatchesProvider.notifier);
+    if (match.isOver) {
+      await played.record(match);
+    } else if (wasOver) {
+      await played.remove(match.id);
+    }
+    // Every change goes to SkorX: live when there is signal, later when not.
+    // A finished result goes to the other players to confirm; it only counts once they do.
+    unawaited(ref.read(casualSyncProvider.notifier).changed(match));
   }
 }

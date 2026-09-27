@@ -1,4 +1,5 @@
 import '../../player/data/player_repository.dart' show PlayCategory;
+import '../../casual_match/verification/verification.dart' show MatchLifecycle;
 import '../../rating/arc_engine.dart' show ArcImpact;
 
 /// The core record of SkorX. Tournaments contain matches; a player's record,
@@ -55,6 +56,19 @@ class TournamentRef {
   final String? pool;
 }
 
+/// A match being streamed, as viewers see it: only the public video. The
+/// scorer's stream key never leaves their phone and the API.
+class LiveBroadcast {
+  const LiveBroadcast({required this.videoId, this.title, this.channel});
+
+  /// The YouTube video id of the live broadcast, as in `youtube.com/watch?v=<id>`.
+  final String videoId;
+  final String? title;
+
+  /// Who is streaming it, e.g. "SkorX Ahmedabad".
+  final String? channel;
+}
+
 /// The game being played right now.
 class LiveGame {
   const LiveGame({required this.number, required this.mine, required this.theirs, this.myServe});
@@ -88,14 +102,17 @@ class Match {
     this.court,
     this.startedAt,
     this.completedAt,
-    this.ratingBefore,
-    this.ratingChange,
+    this.pointsBefore,
+    this.pointsEarned,
     this.arc,
     this.pointsToWin = 11,
     this.bestOf = 3,
     this.theirsPlaceholder,
     this.cancelReason,
     this.place,
+    this.broadcast,
+    this.wonByDefault,
+    this.verification,
   });
 
   final String id;
@@ -120,13 +137,14 @@ class Match {
   final DateTime? startedAt;
   final DateTime? completedAt;
 
-  /// The player's SkorX rating going in, once the match is rated.
-  final int? ratingBefore;
-  final int? ratingChange;
+  /// SkorX Points before this match and earned by it, once the match is
+  /// rated, as shown: 2 decimals.
+  final double? pointsBefore;
+  final double? pointsEarned;
 
-  /// What the match did to the player's SkorX ARC numbers (SXP, Power Index),
-  /// with the full breakdown. [ratingBefore] and [ratingChange] are its SXP,
-  /// rounded so the changes add up to the header.
+  /// What the match did to the player's SkorX Rating and SkorX Points, with
+  /// the full breakdown. [pointsBefore] and [pointsEarned] are its SXP,
+  /// rounded to 2 decimals so the changes add up to the header.
   final ArcImpact? arc;
   final int pointsToWin;
   final int bestOf;
@@ -137,6 +155,22 @@ class Match {
 
   /// City, state and country, once known.
   final MatchPlace? place;
+
+  /// The match on video, for people watching, while it is being streamed.
+  final LiveBroadcast? broadcast;
+
+  /// Set when the match was decided by walkover or retirement rather than
+  /// on the scoreboard: whether [mine] was given it.
+  final bool? wonByDefault;
+
+  /// Casual matches scored in the app: where player verification stands.
+  /// Null for tournament matches (verified by their organizer) and for
+  /// matches SkorX already counts.
+  final MatchLifecycle? verification;
+
+  /// Whether the match may count toward stats, rating, rankings and
+  /// achievements: never while its players have not all confirmed it.
+  bool get isOfficial => verification == null || verification!.official;
 
   MatchCategory get category => tournament == null ? MatchCategory.casual : MatchCategory.tournament;
 
@@ -149,9 +183,11 @@ class Match {
   int get gamesLost => games.where((g) => g.$2 > g.$1).length;
 
   /// Only meaningful once [isCompleted].
-  bool get won => gamesWon > gamesLost;
+  bool get won => wonByDefault ?? gamesWon > gamesLost;
 
-  int? get ratingAfter => ratingBefore == null || ratingChange == null ? null : ratingBefore! + ratingChange!;
+  double? get pointsAfter => pointsBefore == null || pointsEarned == null
+      ? null
+      : ((pointsBefore! * 100).round() + (pointsEarned! * 100).round()) / 100;
 
   bool get opponentKnown => theirs.isNotEmpty;
 
@@ -198,6 +234,7 @@ class Match {
               myServe: live!.myServe == null ? null : !live!.myServe!,
             ),
       involvesMe: true,
+      wonByDefault: wonByDefault == null ? null : !wonByDefault!,
       keepRating: false,
     );
   }
@@ -212,6 +249,7 @@ class Match {
     LiveGame? live,
     bool? involvesMe,
     MatchPlace? place,
+    bool? wonByDefault,
     required bool keepRating,
   }) =>
       Match(
@@ -230,14 +268,17 @@ class Match {
         court: court,
         startedAt: startedAt,
         completedAt: completedAt,
-        ratingBefore: keepRating ? ratingBefore : null,
-        ratingChange: keepRating ? ratingChange : null,
+        pointsBefore: keepRating ? pointsBefore : null,
+        pointsEarned: keepRating ? pointsEarned : null,
         arc: keepRating ? arc : null,
         pointsToWin: pointsToWin,
         bestOf: bestOf,
         theirsPlaceholder: theirsPlaceholder,
         cancelReason: cancelReason,
         place: place ?? this.place,
+        broadcast: broadcast,
+        wonByDefault: wonByDefault ?? this.wonByDefault,
+        verification: verification,
       );
 }
 
@@ -261,7 +302,8 @@ class PlayerRecord {
   PlayerRecord(Iterable<Match> matches)
       : finished = [
           for (final m in matches)
-            if (m.isCompleted && m.involvesMe) m,
+            // Pending, disputed or rejected casual matches never count.
+            if (m.isCompleted && m.involvesMe && m.isOfficial) m,
         ]..sort((a, b) => b.playedAt.compareTo(a.playedAt));
 
   /// Newest first.

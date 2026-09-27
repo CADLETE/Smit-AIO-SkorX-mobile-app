@@ -262,7 +262,8 @@ class _MatchesPageState extends ConsumerState<MatchesPage> {
     );
   }
 
-  /// Live now, from tournaments, coming up, then the latest results.
+  /// Live now, from tournaments, coming up, then the latest results, each
+  /// newest-first; the full lists are one tab away.
   List<Widget> _all(BuildContext context, MatchQuery q) {
     final live = ref.watch(matchFeedProvider(q.copyWith(status: () => MatchStatus.live)));
     final upcoming = ref.watch(matchFeedProvider(q.copyWith(status: () => MatchStatus.upcoming)));
@@ -302,8 +303,25 @@ class _MatchesPageState extends ConsumerState<MatchesPage> {
           Padding(padding: const EdgeInsets.only(bottom: Sx.s12), child: MatchCard(match: m)),
         const SizedBox(height: Sx.s20),
       ],
-      const SxSection('Latest results'),
-      ..._pagedList(context, results, q.copyWith(status: () => MatchStatus.completed), grouped: true),
+      if (results.isLoading && !results.hasValue) ...[
+        const SxSection('Latest results'),
+        const Skeleton(height: 172, radius: Sx.radius),
+      ] else if (results.hasError && !results.hasValue) ...[
+        const SxSection('Latest results'),
+        ErrorBlock(
+          message: 'Matches did not load.',
+          onRetry: () => ref.invalidate(matchFeedProvider(q.copyWith(status: () => MatchStatus.completed))),
+        ),
+      ] else if (results.value?.matches.isNotEmpty ?? false) ...[
+        SxSection('Latest results', action: 'See all', onAction: () => _select(MatchesTab.completed)),
+        _Strip(
+          key: const Key('latestResults'),
+          height: 172,
+          children: [
+            for (final m in results.value!.matches.take(10)) SizedBox(width: 304, child: MatchCard(match: m)),
+          ],
+        ),
+      ],
     ];
   }
 

@@ -4,9 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_exception.dart';
 import '../../../core/sample_latency.dart';
 import '../../../core/sample_persona.dart';
-import '../../player/data/player_repository.dart' show PlayCategory, RatingPoint;
+import '../../auth/auth_controller.dart' show currentUserProvider;
+import '../../casual_match/played_matches.dart';
+import '../../casual_match/verification/verification.dart' show MatchLifecycle;
+import '../../casual_match/verification/verification_controller.dart';
+import '../../player/data/player_repository.dart' show PlayCategory;
 import '../../rating/arc_career.dart';
-import '../../rating/arc_engine.dart' show ArcImpact;
+import '../../rating/arc_engine.dart' show ArcImpact, Sxp;
 import '../../tournaments/data/tournaments.dart';
 import 'journey.dart';
 import 'match.dart';
@@ -40,7 +44,7 @@ abstract class MatchRepository {
   Future<PlayerRecord> record();
 
   /// `GET /me/player/rating-history`
-  Future<List<RatingPoint>> ratingHistory();
+  Future<List<ArcPoint>> ratingHistory();
 
   /// `GET /tournaments/:id/matches?category=mine`: every match in the
   /// player's category, theirs and everyone else's.
@@ -62,12 +66,53 @@ final activeMatchesProvider = FutureProvider<List<Match>>((ref) => ref.watch(mat
 /// Matches on court right now, the player's own first.
 final liveMatchesProvider = FutureProvider<List<Match>>((ref) => ref.watch(matchRepositoryProvider).liveNow());
 
-final matchProvider = FutureProvider.family<Match, String>((ref, id) => ref.watch(matchRepositoryProvider).match(id));
+final matchProvider = FutureProvider.family<Match, String>((ref, id) async {
+  // A casual match finished on this phone, before the API has it.
+  await ref.read(playedMatchesProvider.notifier).ready;
+  final local = ref.read(playedMatchesProvider).where((m) => m.id == id).firstOrNull;
+  final here = local == null
+      ? null
+      : historyMatchOf(local, ref.read(currentUserProvider), verification: ref.watch(localLifecycleProvider(local.id)));
+  return here ?? ref.watch(matchRepositoryProvider).match(id);
+});
 
-final playerRecordProvider = FutureProvider<PlayerRecord>((ref) => ref.watch(matchRepositoryProvider).record());
+/// The player's casual matches from this phone that do not count yet:
+/// waiting for confirmation, disputed, rejected or never sent. Shown under
+/// Pending matches, never in stats, rating or history.
+final pendingCasualMatchesProvider = Provider<List<Match>>((ref) {
+  final played = ref.watch(playedMatchesProvider);
+  final sync = ref.watch(casualSyncProvider);
+  final user = ref.read(currentUserProvider);
+  return [
+    for (final local in played)
+      // Matches finished before verification existed were never sent: they
+      // stay off the record without being listed as waiting.
+      if (sync[local.id] != null)
+        if (historyMatchOf(local, user, verification: sync[local.id]!.lifecycle) case final m?
+            when !m.isOfficial && m.verification != MatchLifecycle.cancelled)
+          m,
+  ];
+});
+
+final playerRecordProvider = FutureProvider<PlayerRecord>((ref) async {
+  final played = ref.watch(playedMatchesProvider);
+  final sync = ref.watch(casualSyncProvider);
+  final record = await ref.watch(matchRepositoryProvider).record();
+  final user = ref.read(currentUserProvider);
+  final ids = {for (final m in record.finished) m.id};
+  // Only casual matches every player confirmed reach the record; PlayerRecord
+  // drops the rest (Match.isOfficial).
+  final here = [
+    for (final local in played)
+      if (historyMatchOf(local, user, verification: sync[local.id]?.lifecycle ?? MatchLifecycle.draft) case final m?
+          when !ids.contains(m.id) && m.isOfficial)
+        m,
+  ];
+  return here.isEmpty ? record : PlayerRecord([...record.finished, ...here]);
+});
 
 final ratingHistoryProvider =
-    FutureProvider<List<RatingPoint>>((ref) => ref.watch(matchRepositoryProvider).ratingHistory());
+    FutureProvider<List<ArcPoint>>((ref) => ref.watch(matchRepositoryProvider).ratingHistory());
 
 final tournamentMatchesProvider = FutureProvider.family<List<Match>, String>(
   (ref, id) => ref.watch(matchRepositoryProvider).tournamentMatches(id),
@@ -96,18 +141,47 @@ class MatchHistory extends AsyncNotifier<MatchPage> {
   bool _loading = false;
 
   @override
-  Future<MatchPage> build() => ref.watch(matchRepositoryProvider).results();
+  Future<MatchPage> build() async {
+    // Rebuilt whenever a match finishes on this phone or is verified, so it shows at once.
+    ref.watch(playedMatchesProvider);
+    ref.watch(casualSyncProvider);
+    await ref.read(playedMatchesProvider.notifier).ready;
+    final page = await ref.watch(matchRepositoryProvider).results();
+    return MatchPage(_withPlayedHere(page, before: null), hasMore: page.hasMore);
+  }
 
   Future<void> loadMore() async {
     final current = state.value;
     if (current == null || !current.hasMore || _loading) return;
     _loading = true;
     try {
-      final next = await ref.read(matchRepositoryProvider).results(before: current.matches.last.playedAt);
-      state = AsyncData(MatchPage([...current.matches, ...next.matches], hasMore: next.hasMore));
+      final before = current.matches.last.playedAt;
+      final next = await ref.read(matchRepositoryProvider).results(before: before);
+      state = AsyncData(MatchPage([...current.matches, ..._withPlayedHere(next, before: before)], hasMore: next.hasMore));
     } finally {
       _loading = false;
     }
+  }
+
+  /// [page] with the verified casual matches finished on this phone that
+  /// fall in the same stretch of time, newest first. Unverified ones are
+  /// under Pending matches instead.
+  List<Match> _withPlayedHere(MatchPage page, {required DateTime? before}) {
+    final user = ref.read(currentUserProvider);
+    final sync = ref.read(casualSyncProvider);
+    final oldest = page.hasMore && page.matches.isNotEmpty ? page.matches.last.playedAt : null;
+    final ids = {for (final m in page.matches) m.id};
+    final here = [
+      for (final local in ref.read(playedMatchesProvider))
+        if (historyMatchOf(local, user, verification: sync[local.id]?.lifecycle ?? MatchLifecycle.draft) case final m?)
+          if (m.isOfficial &&
+              !ids.contains(m.id) &&
+              (before == null || m.playedAt.isBefore(before)) &&
+              (oldest == null || !m.playedAt.isBefore(oldest)))
+            m,
+    ];
+    if (here.isEmpty) return page.matches;
+    return [...page.matches, ...here]..sort((a, b) => b.playedAt.compareTo(a.playedAt));
   }
 }
 
@@ -131,7 +205,7 @@ class EmptyMatchRepository implements MatchRepository {
   Future<PlayerRecord> record() async => PlayerRecord(const []);
 
   @override
-  Future<List<RatingPoint>> ratingHistory() async => const [];
+  Future<List<ArcPoint>> ratingHistory() async => const [];
 
   @override
   Future<List<Match>> tournamentMatches(String tournamentId) async => const [];
@@ -201,15 +275,9 @@ class SampleMatchRepository implements MatchRepository {
   }
 
   @override
-  Future<List<RatingPoint>> ratingHistory() async {
+  Future<List<ArcPoint>> ratingHistory() async {
     await simulateLatency(latency);
-    final rated = _mine.where((m) => m.isCompleted && m.ratingAfter != null).toList()
-      ..sort((a, b) => a.playedAt.compareTo(b.playedAt));
-    if (rated.isEmpty) return const [];
-    return [
-      RatingPoint(rated.first.playedAt.subtract(const Duration(days: 1)), rated.first.ratingBefore!),
-      for (final m in rated) RatingPoint(m.playedAt, m.ratingAfter!),
-    ];
+    return ArcSummary.fromMatches(_mine)?.timeline ?? const [];
   }
 
   @override
@@ -234,8 +302,8 @@ class SampleSeason {
     _build();
   }
 
-  /// Career SkorX Points after the last rated match.
-  int get currentRating => career.sxp.round();
+  /// Career SkorX Points after the last rated match, as shown (2 decimals).
+  double get currentPoints => Sxp.shown(career.sxpUnits);
 
   /// The replayed career: SXP, Power Index per format, every impact.
   late final ArcCareer career;
@@ -243,6 +311,9 @@ class SampleSeason {
   /// Power Index of the players the sample season meets, from their sample
   /// ratings. The signed-in player starts the season at [startSpi].
   static const startSpi = 38.0;
+
+  /// Career SkorX Points the sample player had earned before this season.
+  static const startSxp = 612.40;
   static const spi = <String, double>{
     'Kamal Parmar': 44, 'Dev Patel': 36.4, 'Arjun Trivedi': 45.5, 'Anand Varsada': 46, 'Hardik Suthar': 33,
     'Om Trivedi': 34, 'Jay Desai': 38, 'Rahul Mehta': 50, 'Vivek Rana': 42, 'Kabir Rao': 43, 'Ishaan Patel': 50.7,
@@ -356,6 +427,8 @@ class SampleSeason {
       tournament: lg('Quarter-final'),
       venue: club,
       court: 'Court 03',
+      // Any public YouTube video stands in for the club's live stream.
+      broadcast: const LiveBroadcast(videoId: sampleBroadcastVideoId, title: 'Quarter-final · Court 03', channel: 'SkorX Live'),
     ));
     // The other quarter-finals on court at the same time.
     Match liveQf(String id, List<String> a, List<String> b, int startedMinsAgo, List<(int, int)> games, LiveGame live, String court) {
@@ -546,15 +619,15 @@ class SampleSeason {
     }
 
     // Rating: replay the season through the ARC engine, oldest first.
-    // ratingBefore/ratingChange are the rounded SXP, so the changes add up
-    // exactly to the header number.
+    // pointsBefore/pointsEarned are the SXP rounded to 2 decimals, so the
+    // changes add up exactly to the header number.
     final rated = raw.where((x) => x.involvesMe && x.isCompleted).toList()
       ..sort((a, b) => a.playedAt.compareTo(b.playedAt));
-    career = ArcCareer(spiOf: (name) => spi[name] ?? 40, startSpi: startSpi);
-    final before = <String, int>{};
+    career = ArcCareer(spiOf: (name) => spi[name] ?? 40, startSpi: startSpi, startSxpUnits: Sxp.unitsOf(startSxp));
+    final before = <String, double>{};
     final impact = <String, ArcImpact>{};
     for (final x in rated) {
-      before[x.id] = career.sxp.round();
+      before[x.id] = Sxp.shown(career.sxpUnits);
       impact[x.id] = career.add(x);
     }
     matches.addAll([
@@ -575,11 +648,15 @@ class SampleSeason {
                 court: x.court,
                 startedAt: x.startedAt,
                 completedAt: x.completedAt,
-                ratingBefore: before[x.id],
-                ratingChange: impact[x.id]!.sxpAfter.round() - before[x.id]!,
+                pointsBefore: before[x.id],
+                pointsEarned: impact[x.id]!.shownGain,
                 arc: impact[x.id],
               )
             : x,
     ]);
   }
 }
+
+/// The video sample matches stream: YouTube's first upload, which will not
+/// go away. Swap in a real broadcast's id to try a live stream.
+const sampleBroadcastVideoId = 'jNQXAC9IVRw';

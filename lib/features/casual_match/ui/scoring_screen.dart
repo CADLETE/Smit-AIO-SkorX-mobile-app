@@ -20,6 +20,7 @@ import 'live/match_complete_view.dart';
 import 'live/share_result.dart';
 import '../live/match_analytics.dart';
 import 'scoring_labels.dart';
+import '../offline/ui/offline_ui.dart';
 
 export 'scoring_labels.dart' show rallyActionLabel;
 
@@ -223,32 +224,8 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     final line = commentaryFor(after, step, settings.commentary, before: prev);
     if (settings.sound) SystemSound.play(SystemSoundType.click);
 
-    CourtBanner? banner;
-    if (events.contains(LiveEvent.matchWon)) {
-      HapticFeedback.heavyImpact();
-    } else if (events.contains(LiveEvent.gameWon) && winner != null) {
-      HapticFeedback.heavyImpact();
-      final g = step.score.games[step.score.games.length - 2];
-      banner = CourtBanner('GAME ${step.score.gameNumber - 1}',
-          detail: '${after.teamLabel(winner)} ${g.of(winner)}–${g.of(winner.opponent)}', token: ++_token, strong: true);
-    } else if (events.contains(LiveEvent.endsSwitched)) {
-      banner = CourtBanner('CHANGE ENDS', detail: 'Halfway in the deciding game', token: ++_token, strong: true);
-    } else if (events.contains(LiveEvent.sideOut)) {
-      banner = CourtBanner('SIDE OUT', detail: '${after.teamLabel(step.court.serveSide)} to serve', token: ++_token);
-    } else if (events.contains(LiveEvent.secondServer)) {
-      final name = after.names(step.court.serveSide)[step.court.serverIndex];
-      banner = CourtBanner('2ND SERVER', detail: '${name.split(' ').first} serves', token: ++_token);
-    } else if (events.contains(LiveEvent.serveCorrected)) {
-      banner = CourtBanner('SERVE CORRECTED', token: ++_token);
-    } else {
-      for (final side in Side.values) {
-        if (isMatchPoint(after, step.score, side)) {
-          banner = CourtBanner('MATCH POINT', detail: after.teamLabel(side), token: ++_token, strong: true);
-        } else if (isGamePoint(after, step.score, side)) {
-          banner ??= CourtBanner('GAME POINT', detail: after.teamLabel(side), token: ++_token);
-        }
-      }
-    }
+    if (events.contains(LiveEvent.matchWon) || events.contains(LiveEvent.gameWon)) HapticFeedback.heavyImpact();
+    final banner = rallyBanner(after, step, ++_token);
 
     setState(() {
       if (winner != null) _flash = CourtFlash(winner, point: events.contains(LiveEvent.point), token: ++_token);
@@ -369,6 +346,8 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _confirmExit();
       },
+      child: SyncNotices(
+      localId: match.id,
       child: Scaffold(
       backgroundColor: c.canvas,
       body: SafeArea(
@@ -404,6 +383,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
               ),
           ],
         ),
+      ),
       ),
       ),
     );
@@ -459,27 +439,8 @@ class _LiveHeader extends StatelessWidget {
               ],
             ),
           ),
-          Tooltip(
-            message: 'Every point is saved on this phone as it is scored',
-            child: Container(
-              key: const Key('savedChip'),
-              margin: const EdgeInsets.only(right: Sx.s12),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: c.surfaceAlt,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: c.cardEdge),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.phone_android_rounded, size: 13, color: c.volt),
-                  const SizedBox(width: 4),
-                  Text('SAVED', style: SxType.label(c.inkMuted, size: 11)),
-                ],
-              ),
-            ),
-          ),
+          // Every point is saved on this phone first; this says where SkorX is.
+          SyncStatusChip(localId: match.id),
         ],
       ),
     );

@@ -7,7 +7,9 @@ import 'package:skorx/features/auth/data/auth_repository.dart';
 import 'package:skorx/design/design.dart';
 import 'package:skorx/features/casual_match/data/match_setup.dart';
 import 'package:skorx/features/casual_match/live/commentary.dart';
+import 'package:skorx/features/casual_match/played_matches.dart';
 import 'package:skorx/features/casual_match/scoring_controller.dart';
+import 'package:skorx/features/matches/data/match_repository.dart';
 import 'package:skorx/features/casual_match/ui/scoring_screen.dart';
 import 'package:skorx/features/shell/workspace_shell.dart';
 import 'package:skorx/sports/core/match_rules.dart';
@@ -105,6 +107,53 @@ void main() {
       await c.read(scoringControllerProvider.notifier).close();
       final relaunched = await container();
       expect(relaunched.read(scoringControllerProvider), isNull);
+    });
+
+    test('a finished match stays in the player\'s results only once its players confirm it', () async {
+      final c = await container();
+      final scoring = c.read(scoringControllerProvider.notifier);
+      await scoring.start(const NewMatch(
+        sportId: 'pickleball',
+        categoryId: 'doubles',
+        sideA: ['Anand Varsada', 'Hardik Suthar'],
+        sideB: ['Kamal Parmar', 'You'],
+        rules: MatchRules(pointsToWin: 1, winByTwo: false, bestOf: 1),
+        firstServer: Side.b,
+      ));
+      await scoring.rallyWonBy(Side.b);
+      final id = c.read(scoringControllerProvider)!.id;
+      await scoring.close();
+
+      final relaunched = await container();
+      // Home watches the history, as here.
+      relaunched.listen(matchHistoryProvider, (_, _) {});
+      final page = await relaunched.read(matchHistoryProvider.future);
+      // Casual matches count only once verified (docs/CASUAL-VERIFICATION.md).
+      expect(page.matches.map((m) => m.id), isNot(contains(id)));
+      final match = await relaunched.read(matchProvider(id).future);
+      expect(match.id, id);
+      expect(match.mine, ['You', 'Kamal Parmar']);
+      expect(match.games, [(1, 0)]);
+      expect(match.won, isTrue);
+      expect(match.isOfficial, isFalse);
+      expect((await relaunched.read(playerRecordProvider.future)).finished.map((m) => m.id), isNot(contains(id)));
+    });
+
+    test('undoing the winning point takes the match out of the results', () async {
+      final c = await container();
+      final scoring = c.read(scoringControllerProvider.notifier);
+      await scoring.start(const NewMatch(
+        sportId: 'pickleball',
+        categoryId: 'singles',
+        sideA: ['You'],
+        sideB: ['Vivek Rana'],
+        rules: MatchRules(pointsToWin: 1, winByTwo: false, bestOf: 1),
+        firstServer: Side.a,
+      ));
+      await scoring.rallyWonBy(Side.a);
+      expect(c.read(playedMatchesProvider), hasLength(1));
+      await scoring.undo();
+      expect(c.read(playedMatchesProvider), isEmpty);
     });
   });
 

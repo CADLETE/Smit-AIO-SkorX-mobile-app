@@ -407,7 +407,7 @@ class _EntryCard extends StatelessWidget {
                     Text(e.name, maxLines: 2, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
                     const SizedBox(height: 2),
                     Text(
-                      [c?.title ?? '', if (e.rating != null) 'Rating ${e.rating}'].join(' · '),
+                      [c?.title ?? '', if (e.rating != null) 'Rating ${ratingText(e.rating!)}'].join(' · '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: colors.textMuted, fontSize: 12.5),
@@ -555,7 +555,7 @@ class _EntrySheet extends ConsumerWidget {
               SkxRow(
                 icon: Icons.person_rounded,
                 label: p.name,
-                subtitle: [p.rating == null ? 'Unrated' : 'Rating ${p.rating}', ?p.city].join(' · '),
+                subtitle: [p.rating == null ? 'Unrated' : 'Rating ${ratingText(p.rating!)}', ?p.city].join(' · '),
                 showChevron: false,
               ),
           ]),

@@ -129,7 +129,7 @@ class _MatchConsolePageState extends ConsumerState<MatchConsolePage> {
                 ),
               const SizedBox(height: SkorxSpace.sm),
               Text(
-                'Results go to both players, the draw and SkorX ratings as soon as you confirm.',
+                'Results go to both players, the draw and their SkorX Rating and Points as soon as you confirm.',
                 style: TextStyle(color: colors.textMuted, height: 1.4),
               ),
               const SizedBox(height: SkorxSpace.xl),

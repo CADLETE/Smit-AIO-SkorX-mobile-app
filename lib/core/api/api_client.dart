@@ -56,6 +56,26 @@ class ApiClient {
 
   Future<T> patch<T>(String path, {Object? body}) => _send<T>(() => _dio.patch<Object?>(path, data: body));
 
+  Future<T> put<T>(String path, {Object? body}) => _send<T>(() => _dio.put<Object?>(path, data: body));
+
+  Future<T> delete<T>(String path, {Object? body}) => _send<T>(() => _dio.delete<Object?>(path, data: body));
+
+  /// A paged list: the data plus the envelope's `meta` (cursors, totals).
+  Future<(T, Map<String, dynamic>)> getPage<T>(String path, {Map<String, dynamic>? query}) async {
+    final meta = <String, dynamic>{};
+    final data = await _send<T>(() async {
+      final response = await _dio.get<Object?>(path, queryParameters: query);
+      final body = response.data;
+      if (body is Map<String, dynamic> && body['meta'] is Map<String, dynamic>) {
+        meta
+          ..clear()
+          ..addAll(body['meta'] as Map<String, dynamic>);
+      }
+      return response;
+    });
+    return (data, meta);
+  }
+
   /// Unauthenticated call that must not trigger a refresh (sign-in itself).
   Future<T> postPublic<T>(String path, {Object? body}) =>
       _send<T>(() => _refreshDio.post<Object?>(path, data: body), retryOnExpiry: false);

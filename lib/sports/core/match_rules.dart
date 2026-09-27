@@ -19,6 +19,10 @@ enum ScoringSystem {
   }
 }
 
+/// Match lengths players can pick: one game or best of 3. Older matches
+/// stored as best of 5 or 7 still parse so history keeps loading.
+const playableBestOf = [1, 3];
+
 /// Rules for point-based racket sports: best of [bestOf] games, each game
 /// first to [pointsToWin], optionally win by two, optionally capped.
 ///

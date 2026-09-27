@@ -6,6 +6,7 @@ import '../../auth/auth_controller.dart';
 import '../../matches/data/match.dart';
 import '../../matches/data/match_repository.dart' show MatchPage;
 import '../../matches/data/sample_universe.dart';
+import '../../rating/arc_engine.dart' show SkorxBand;
 import 'player_repository.dart' show PlayCategory;
 
 /// Who a player is: enough to recognise them in the Quick View.
@@ -18,6 +19,7 @@ class PlayerProfile {
     this.country,
     this.level,
     this.points,
+    this.rating,
     this.isMe = false,
   });
 
@@ -29,11 +31,14 @@ class PlayerProfile {
   final String? region;
   final String? country;
 
-  /// "Intermediate".
+  /// The SkorX Rating band, "Intermediate".
   final String? level;
 
-  /// SkorX Points (the rating); null until they have rated matches.
-  final int? points;
+  /// SkorX Points: everything earned. Null until they have rated matches.
+  final double? points;
+
+  /// SkorX Rating: skill now, 0–100. Null until they have rated matches.
+  final double? rating;
   final bool isMe;
 
   /// Whether this is a registered SkorX player, with a public id.
@@ -373,8 +378,9 @@ class SamplePlayerStatsRepository implements PlayerStatsRepository {
         city: place.city,
         region: place.region,
         country: place.country,
-        level: played ? 'Intermediate' : 'New player',
-        points: played ? universe.season.currentRating : null,
+        level: played ? SkorxBand.of(universe.season.career.overallSpi).label : 'New player',
+        points: played ? universe.season.currentPoints : null,
+        rating: played ? universe.season.career.overallSpi : null,
         isMe: true,
       );
     }
@@ -387,8 +393,9 @@ class SamplePlayerStatsRepository implements PlayerStatsRepository {
       city: place.city,
       region: place.region,
       country: place.country,
-      level: p.level,
+      level: p.rating == null ? p.level : SkorxBand.of(p.rating!).label,
       points: p.points,
+      rating: p.rating,
     );
   }
 

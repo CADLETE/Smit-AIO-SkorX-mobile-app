@@ -54,13 +54,21 @@ void main() {
       expect(pickleball.rulesProblem(sideOut), isNull);
     });
 
+    test('offers one game or best of 3, never longer', () {
+      for (final sport in SportRegistry.standard.all) {
+        expect(sport.bestOfOptions, [1, 3]);
+      }
+      const bestOf5 = MatchRules(pointsToWin: 11, winByTwo: true, bestOf: 5, scoring: ScoringSystem.sideOut);
+      expect(pickleball.rulesProblem(bestOf5), 'Matches are one game or best of 3.');
+    });
+
     test('default rules match what the API seeds', () {
       // Keep in step with backend/prisma/reference-data.ts.
       expect(pickleball.defaultRules.toJson(),
           {'pointsToWin': 11, 'winByTwo': true, 'bestOf': 3, 'scoring': 'side_out'});
       expect(badminton.defaultRules.toJson(),
           {'pointsToWin': 21, 'winByTwo': true, 'bestOf': 3, 'pointCap': 30, 'scoring': 'rally'});
-      expect(tableTennis.defaultRules.toJson(), {'pointsToWin': 11, 'winByTwo': true, 'bestOf': 5, 'scoring': 'rally'});
+      expect(tableTennis.defaultRules.toJson(), {'pointsToWin': 11, 'winByTwo': true, 'bestOf': 3, 'scoring': 'rally'});
     });
 
     test('every sport offers singles and doubles with the right team sizes', () {

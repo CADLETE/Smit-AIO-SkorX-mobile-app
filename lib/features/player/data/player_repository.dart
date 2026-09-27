@@ -1,12 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../shared/format.dart' show sxpDeltaText, sxpText;
 import '../../../core/sample_latency.dart';
 import '../../../core/sample_persona.dart';
 import '../../auth/auth_controller.dart';
 import '../../matches/data/match_repository.dart' show SampleSeason;
 import '../../matches/data/sample_universe.dart' show SampleUniverse, sampleUniverseProvider;
 import '../../rating/arc_career.dart';
+import '../../rating/arc_engine.dart' show SkorxBand;
 import 'x_code.dart';
 
 /// Match formats a rating and ranking are kept for.
@@ -27,13 +29,6 @@ enum RankScope {
 
   const RankScope(this.label);
   final String label;
-}
-
-class RatingPoint {
-  const RatingPoint(this.date, this.rating);
-
-  final DateTime date;
-  final int rating;
 }
 
 /// The player's position in one scope and category.
@@ -76,10 +71,9 @@ class ActivityItem {
 class PlayerOverview {
   const PlayerOverview({
     required this.playerId,
-    required this.rating,
     required this.ratingChange30d,
+    required this.pointsEarned30d,
     required this.level,
-    required this.ratingHistory,
     required this.rankings,
     required this.insights,
     required this.activity,
@@ -90,13 +84,16 @@ class PlayerOverview {
   /// Public id shown on the player card, e.g. "SKX-10482".
   final String playerId;
 
-  /// Career SkorX Points (SXP); null until the player has rated matches.
-  final int? rating;
-  final int ratingChange30d;
+  /// SkorX Rating: skill now, 0–100, up and down. Null until rated.
+  double? get rating => arc?.rating;
+  final double ratingChange30d;
 
-  /// The SkorX ARC level ("Kitchen Regular"), or "New player".
+  /// SkorX Points: everything earned, only ever up. Null until rated.
+  double? get points => arc?.points;
+  final double pointsEarned30d;
+
+  /// The SkorX Points level ("Net Raider"), or "New player".
   final String level;
-  final List<RatingPoint> ratingHistory;
   final List<Ranking> rankings;
 
   /// One-line observations, strongest first.
@@ -104,15 +101,14 @@ class PlayerOverview {
   final List<ActivityItem> activity;
   final String? city;
 
-  /// Power Index, Heat, formats and level progress; null until rated.
+  /// Rating, points, their history and level progress; null until rated.
   final ArcSummary? arc;
 
   static PlayerOverview empty(String playerId) => PlayerOverview(
         playerId: playerId,
-        rating: null,
         ratingChange30d: 0,
+        pointsEarned30d: 0,
         level: 'New player',
-        ratingHistory: const [],
         rankings: const [],
         insights: const [],
         activity: const [],
@@ -128,10 +124,14 @@ class Achievement {
     required this.description,
     required this.icon,
     required this.tier,
+    this.category = 'Milestones',
     this.unlockedAt,
     this.progress = 0,
     this.progressLabel,
   });
+
+  /// The shelf it sits on in the trophy room ("Wins", "Streaks"...).
+  final String category;
 
   final String id;
   final String title;
@@ -151,6 +151,14 @@ class Achievement {
   final String? progressLabel;
 
   bool get unlocked => unlockedAt != null;
+
+  /// Badge score it is worth once unlocked: harder tiers count for more.
+  int get score => switch (tier) {
+        AchievementTier.bronze => 10,
+        AchievementTier.silver => 25,
+        AchievementTier.gold => 50,
+        AchievementTier.elite => 100,
+      };
 }
 
 class LeaderboardEntry {
@@ -167,7 +175,9 @@ class LeaderboardEntry {
   final int rank;
   final String name;
   final String city;
-  final int rating;
+
+  /// SkorX Rating, which the board is ranked by.
+  final double rating;
 
   /// Places moved since last week.
   final int change;
@@ -198,8 +208,8 @@ class PlayerSummary {
   final String city;
   final String level;
 
-  /// Null until they have rated matches.
-  final int? rating;
+  /// SkorX Rating; null until they have rated matches.
+  final double? rating;
   final int matches;
 
   /// 0–100.
@@ -207,7 +217,8 @@ class PlayerSummary {
   final PlayCategory? bestFormat;
 }
 
-const playerLevels = ['Beginner', 'Intermediate', 'Advanced', 'Pro'];
+/// The SkorX Rating bands, as Explore filters by them.
+final playerLevels = [for (final b in SkorxBand.values) b.label];
 
 enum PlayerSort {
   rating('Top rated'),
@@ -225,7 +236,6 @@ class PlayerFilters {
     this.city,
     this.levels = const {},
     this.formats = const {},
-    this.minRating,
     this.sort = PlayerSort.rating,
   });
 
@@ -235,24 +245,21 @@ class PlayerFilters {
 
   /// Matched against the player's best format.
   final Set<PlayCategory> formats;
-  final int? minRating;
   final PlayerSort sort;
 
   /// How many filters beyond sort are on, for the filter button badge.
-  int get activeCount => (city != null ? 1 : 0) + levels.length + formats.length + (minRating != null ? 1 : 0);
+  int get activeCount => (city != null ? 1 : 0) + levels.length + formats.length;
 
   PlayerFilters copyWith({
     String? Function()? city,
     Set<String>? levels,
     Set<PlayCategory>? formats,
-    int? Function()? minRating,
     PlayerSort? sort,
   }) =>
       PlayerFilters(
         city: city == null ? this.city : city(),
         levels: levels ?? this.levels,
         formats: formats ?? this.formats,
-        minRating: minRating == null ? this.minRating : minRating(),
         sort: sort ?? this.sort,
       );
 
@@ -262,7 +269,6 @@ class PlayerFilters {
     if (city != null && p.city != city) return false;
     if (levels.isNotEmpty && !levels.contains(p.level)) return false;
     if (formats.isNotEmpty && !formats.contains(p.bestFormat)) return false;
-    if (minRating != null && (p.rating ?? 0) < minRating!) return false;
     return true;
   }
 
@@ -364,24 +370,18 @@ class SamplePlayerRepository implements PlayerRepository {
     await simulateLatency(latency);
     final now = DateTime.now();
     final season = _season ?? SampleSeason(now);
-    final mine = season.matches.where((m) => m.involvesMe && m.isCompleted && m.ratingAfter != null).toList()
+    final mine = season.matches.where((m) => m.involvesMe && m.isCompleted && m.pointsAfter != null).toList()
       ..sort((a, b) => a.playedAt.compareTo(b.playedAt));
     final arc = ArcSummary.fromMatches(mine)!;
-    final history = [
-      RatingPoint(mine.first.playedAt.subtract(const Duration(days: 1)), mine.first.ratingBefore!),
-      for (final m in mine) RatingPoint(m.playedAt, m.ratingAfter!),
-    ];
-    final monthAgo = history.lastWhere((p) => p.date.isBefore(now.subtract(const Duration(days: 30))),
-        orElse: () => history.first);
     final last = mine.last;
+    final change = arc.ratingChange(now);
     return PlayerOverview(
       playerId: 'SKX-10482',
-      rating: arc.points,
-      ratingChange30d: arc.points - monthAgo.rating,
+      ratingChange30d: change,
+      pointsEarned30d: arc.pointsEarned(now),
       level: arc.level.name,
       city: 'Ahmedabad',
       arc: arc,
-      ratingHistory: history,
       rankings: const [
         Ranking(scope: RankScope.city, category: PlayCategory.doubles, place: 'Ahmedabad', rank: 14, of: 612, change: 3),
         Ranking(scope: RankScope.state, category: PlayCategory.doubles, place: 'Gujarat', rank: 58, of: 2140, change: 6),
@@ -397,7 +397,7 @@ class SamplePlayerRepository implements PlayerRepository {
         Ranking(scope: RankScope.global, category: PlayCategory.mixed, place: 'World', rank: 2870, of: 64000, change: 210),
       ],
       insights: [
-        'You earned ${arc.points - monthAgo.rating} SkorX Points in the last 30 days.',
+        'Your SkorX Rating is ${change >= 0 ? 'up' : 'down'} ${change.abs().toStringAsFixed(1)} this month, and you earned ${sxpText(arc.pointsEarned(now))} SkorX Points.',
         'Your strongest format is mixed doubles: 75% wins.',
         'You win 80% of matches that go to a deciding game.',
       ],
@@ -410,8 +410,8 @@ class SamplePlayerRepository implements PlayerRepository {
         ),
         ActivityItem(
           kind: ActivityKind.rating,
-          title: 'SkorX Points up to ${arc.points}',
-          detail: '+${last.ratingChange} after your last match',
+          title: 'SkorX Rating now ${arc.rating.toStringAsFixed(1)}',
+          detail: '${sxpDeltaText(last.pointsEarned!)} SkorX Points from your last match',
           at: now.subtract(const Duration(days: 1, hours: 2)),
         ),
         ActivityItem(
@@ -463,9 +463,9 @@ class SamplePlayerRepository implements PlayerRepository {
     ];
     final base = switch (query.scope) {
       RankScope.city => 1420,
-      RankScope.state => 1510,
-      RankScope.country => 1690,
-      RankScope.global => 1905,
+      RankScope.state => 1480,
+      RankScope.country => 1560,
+      RankScope.global => 1640,
     };
     final entries = <LeaderboardEntry>[
       for (final (i, (n, city)) in names.indexed)
@@ -473,7 +473,7 @@ class SamplePlayerRepository implements PlayerRepository {
           rank: i + 1,
           name: n,
           city: city,
-          rating: SampleUniverse.sxpFromLegacy(base - i * 13 - (query.category.index * 7)),
+          rating: SampleUniverse.ratingFromLegacy(base - i * 13 - (query.category.index * 7)),
           change: const [0, 1, -1, 2, 0, 3, -2, 1, 0, -1, 4, 0, 1, -3][i],
           winRate: 78 - i,
         ),
@@ -488,7 +488,7 @@ class SamplePlayerRepository implements PlayerRepository {
       rank: mine,
       name: name.isEmpty ? 'You' : name,
       city: 'Ahmedabad',
-      rating: _season?.currentRating ?? 0,
+      rating: _season?.career.overallSpi ?? 0,
       change: 3,
       winRate: 67,
       isMe: true,
@@ -531,8 +531,8 @@ class SamplePlayerRepository implements PlayerRepository {
             xCode: xCode,
             name: n,
             city: city,
-            rating: rating == null ? null : SampleUniverse.sxpFromLegacy(rating),
-            level: level,
+            rating: rating == null ? null : SampleUniverse.ratingFromLegacy(rating),
+            level: rating == null ? level : SkorxBand.of(SampleUniverse.ratingFromLegacy(rating)).label,
             matches: matches,
             winRate: winRate,
             bestFormat: best,
@@ -541,32 +541,106 @@ class SamplePlayerRepository implements PlayerRepository {
   }
 }
 
+/// The badge catalogue. `have` is the sample player's progress; a newcomer
+/// starts every badge at zero.
 List<Achievement> _catalogue(DateTime now, {required int unlockedCount}) {
+  const b = AchievementTier.bronze, s = AchievementTier.silver, g = AchievementTier.gold, e = AchievementTier.elite;
   const all = [
-    ('first-match', 'First Serve', 'Play your first match on SkorX.', 'ball', AchievementTier.bronze, 1, 1),
-    ('first-win', 'First Victory', 'Win your first match.', 'trophy', AchievementTier.bronze, 1, 1),
-    ('first-tournament', 'Tournament Debut', 'Play in your first tournament.', 'medal', AchievementTier.silver, 1, 1),
-    ('streak-3', 'Hot Streak', 'Win 3 matches in a row.', 'fire', AchievementTier.silver, 3, 3),
-    ('rating-1200', 'Rising Star', 'Reach a 1200 rating.', 'target', AchievementTier.silver, 1200, 1200),
-    ('matches-25', 'Regular', 'Play 25 matches.', 'bolt', AchievementTier.bronze, 25, 25),
-    ('streak-5', 'On Fire', 'Win 5 matches in a row.', 'fire', AchievementTier.gold, 3, 5),
-    ('matches-100', 'Century', 'Play 100 matches.', 'bolt', AchievementTier.gold, 41, 100),
-    ('rating-1500', 'Elite 1500', 'Reach a 1500 rating.', 'target', AchievementTier.gold, 1248, 1500),
-    ('tournament-win', 'Champion', 'Win a tournament category.', 'crown', AchievementTier.gold, 0, 1),
-    ('top-100', 'Top 100', 'Reach the top 100 in your country.', 'rank', AchievementTier.elite, 0, 1),
-    ('bagel', 'Bagel', 'Win a game 11–0.', 'star', AchievementTier.silver, 0, 1),
+    // ── Getting started ──
+    ('first-match', 'First Serve', 'Play your first match on SkorX.', 'ball', b, 'Getting started', 1, 1),
+    ('first-win', 'First Victory', 'Win your first match.', 'trophy', b, 'Getting started', 1, 1),
+    ('first-scored', 'Scorekeeper', 'Score a full match on your phone.', 'scoreboard', b, 'Getting started', 1, 1),
+    ('profile-photo', 'Picture Perfect', 'Add a profile photo.', 'camera', b, 'Getting started', 1, 1),
+    ('first-booking', 'Court Booker', 'Book your first court on SkorX.', 'court', b, 'Getting started', 1, 1),
+    ('first-share', 'Show Off', 'Share a match result with friends.', 'share', b, 'Getting started', 0, 1),
+    // ── Wins ──
+    ('wins-10', 'Double Digits', 'Win 10 matches.', 'trophy', b, 'Wins', 10, 10),
+    ('wins-25', "Winner's Circle", 'Win 25 matches.', 'trophy', s, 'Wins', 25, 25),
+    ('wins-50', 'Half Century', 'Win 50 matches.', 'trophy', g, 'Wins', 27, 50),
+    ('wins-100', 'Ton Up', 'Win 100 matches.', 'crown', e, 'Wins', 27, 100),
+    ('singles-10', 'Lone Wolf', 'Win 10 singles matches.', 'bolt', s, 'Wins', 6, 10),
+    ('doubles-25', 'Dynamic Duo', 'Win 25 doubles matches.', 'handshake', s, 'Wins', 19, 25),
+    ('mixed-10', 'Mixed Master', 'Win 10 mixed doubles matches.', 'heart', s, 'Wins', 4, 10),
+    // ── Streaks ──
+    ('streak-3', 'Hot Streak', 'Win 3 matches in a row.', 'fire', b, 'Streaks', 3, 3),
+    ('streak-5', 'On Fire', 'Win 5 matches in a row.', 'fire', s, 'Streaks', 3, 5),
+    ('streak-10', 'Unstoppable', 'Win 10 matches in a row.', 'fire', g, 'Streaks', 3, 10),
+    ('streak-20', 'Legendary Run', 'Win 20 matches in a row.', 'fire', e, 'Streaks', 3, 20),
+    ('weeks-4', 'Regular Rhythm', 'Play at least once a week for 4 weeks.', 'calendar', b, 'Streaks', 4, 4),
+    ('weeks-12', 'Season Ticket', 'Play every week for 12 weeks.', 'calendar', g, 'Streaks', 7, 12),
+    // ── Matches played ──
+    ('matches-10', 'Warming Up', 'Play 10 matches.', 'ball', b, 'Matches played', 10, 10),
+    ('matches-25', 'Regular', 'Play 25 matches.', 'bolt', b, 'Matches played', 25, 25),
+    ('matches-50', 'Committed', 'Play 50 matches.', 'bolt', s, 'Matches played', 41, 50),
+    ('matches-100', 'Century', 'Play 100 matches.', 'bolt', g, 'Matches played', 41, 100),
+    ('matches-250', 'Court Legend', 'Play 250 matches.', 'crown', e, 'Matches played', 41, 250),
+    ('rallies-1000', 'Point Machine', 'Win 1,000 rallies.', 'target', s, 'Matches played', 640, 1000),
+    ('rallies-5000', 'Rally Royalty', 'Win 5,000 rallies.', 'target', g, 'Matches played', 640, 5000),
+    // ── SkorX Points ──
+    ('rated', 'On the Board', 'Earn your first SkorX Points.', 'rank', b, 'SkorX Points', 1, 1),
+    ('sxp-100', 'Rising Star', 'Reach 100 SkorX Points.', 'rocket', b, 'SkorX Points', 100, 100),
+    ('sxp-500', 'Contender', 'Reach 500 SkorX Points.', 'rocket', s, 'SkorX Points', 500, 500),
+    ('sxp-1000', 'Elite 1000', 'Reach 1,000 SkorX Points.', 'diamond', g, 'SkorX Points', 620, 1000),
+    ('sxp-10000', 'Ten Thousand', 'Reach 10,000 SkorX Points.', 'diamond', e, 'SkorX Points', 620, 10000),
+    ('level-up', 'Level Up', 'Move up a SkorX level.', 'rocket', s, 'SkorX Points', 1, 1),
+    ('city-100', 'City Top 100', 'Reach the top 100 in your city.', 'rank', s, 'SkorX Rating', 1, 1),
+    ('city-10', 'City Top 10', 'Reach the top 10 in your city.', 'rank', g, 'SkorX Rating', 0, 1),
+    ('top-100', 'National Top 100', 'Reach the top 100 in the country.', 'rank', e, 'SkorX Rating', 0, 1),
+    // ── Tournaments ──
+    ('first-tournament', 'Tournament Debut', 'Play in your first tournament.', 'medal', s, 'Tournaments', 1, 1),
+    ('tournaments-5', 'Circuit Player', 'Play in 5 tournaments.', 'medal', s, 'Tournaments', 3, 5),
+    ('tournaments-10', 'Tour Veteran', 'Play in 10 tournaments.', 'medal', g, 'Tournaments', 3, 10),
+    ('quarter-final', 'Quarter-finalist', 'Reach a tournament quarter-final.', 'flag', s, 'Tournaments', 1, 1),
+    ('semi-final', 'Semi-finalist', 'Reach a tournament semi-final.', 'flag', g, 'Tournaments', 0, 1),
+    ('final', 'Finalist', 'Reach a tournament final.', 'flag', g, 'Tournaments', 0, 1),
+    ('tournament-win', 'Champion', 'Win a tournament category.', 'crown', g, 'Tournaments', 0, 1),
+    ('titles-3', 'Dynasty', 'Win 3 tournament titles.', 'crown', e, 'Tournaments', 0, 3),
+    // ── Big moments ──
+    ('comeback', 'Comeback Kid', 'Win a game after trailing by 5 or more.', 'comeback', s, 'Big moments', 1, 1),
+    ('clean-sweep', 'Clean Sweep', 'Win a best of 3 without dropping a game.', 'diamond', s, 'Big moments', 1, 1),
+    ('deuce', 'Nerves of Steel', 'Win a game that goes past 12 points.', 'shield', s, 'Big moments', 1, 1),
+    ('marathon', 'Marathon', 'Win a match in the deciding game.', 'clock', s, 'Big moments', 1, 1),
+    ('serve-run', 'Serve Machine', 'Win 5 points in a row on your serve.', 'sun', b, 'Big moments', 1, 1),
+    ('bagel', 'Bagel', 'Win a game 11–0.', 'star', g, 'Big moments', 0, 1),
+    ('giant-killer', 'Giant Killer', 'Beat a player rated 10 or more above you.', 'rocket', g, 'Big moments', 0, 1),
+    // ── Community ──
+    ('partners-5', 'Social Butterfly', 'Play with 5 different partners.', 'users', b, 'Community', 5, 5),
+    ('people-20', 'Club Connector', 'Play with or against 20 different people.', 'users', s, 'Community', 12, 20),
+    ('opponents-50', 'Well Travelled', 'Face 50 different opponents.', 'users', g, 'Community', 31, 50),
+    ('x-code', 'Found You', 'Get added to a match by your X code.', 'handshake', b, 'Community', 1, 1),
+    ('referee-5', 'Fair Play', 'Score 5 matches for other players.', 'whistle', s, 'Community', 2, 5),
+    ('on-air', 'On Air', 'Stream a match live on YouTube.', 'camera', g, 'Community', 0, 1),
+    // ── Courts ──
+    ('venues-3', 'Explorer', 'Play at 3 different venues.', 'map', b, 'Courts', 3, 3),
+    ('venues-10', 'Court Collector', 'Play at 10 different venues.', 'map', s, 'Courts', 4, 10),
+    ('cities-3', 'On Tour', 'Play in 3 different cities.', 'map', g, 'Courts', 2, 3),
+    ('bookings-10', 'Booking Pro', 'Book 10 courts on SkorX.', 'court', s, 'Courts', 2, 10),
+    ('early-bird', 'Early Bird', 'Play a match that starts before 7 AM.', 'sun', b, 'Courts', 1, 1),
+    ('night-owl', 'Night Owl', 'Play a match that starts after 9 PM.', 'moon', b, 'Courts', 1, 1),
+    ('weekends-10', 'Weekend Warrior', 'Play 10 matches on weekends.', 'calendar', s, 'Courts', 7, 10),
   ];
+  final fresh = unlockedCount == 0;
+  var n = 0;
   return [
-    for (final (i, (id, title, description, icon, tier, have, need)) in all.indexed)
-      Achievement(
-        id: id,
-        title: title,
-        description: description,
-        icon: icon,
-        tier: tier,
-        unlockedAt: i < unlockedCount ? now.subtract(Duration(days: 60 - i * 9)) : null,
-        progress: i < unlockedCount ? 1 : (unlockedCount == 0 ? 0 : (have / need).clamp(0, 0.99).toDouble()),
-        progressLabel: i < unlockedCount || unlockedCount == 0 ? null : '$have / $need',
-      ),
+    for (final (id, title, description, icon, tier, category, have, need) in all)
+      () {
+        final done = !fresh && have >= need;
+        // Unlocked over the last three months, newest last in the list.
+        final at = done ? now.subtract(Duration(days: 88 - (n * 3) % 86, hours: (n++ * 5) % 24)) : null;
+        final count = fresh ? 0 : have;
+        return Achievement(
+          id: id,
+          title: title,
+          description: description,
+          icon: icon,
+          tier: tier,
+          category: category,
+          unlockedAt: at,
+          progress: done ? 1 : (count / need).clamp(0, 0.99).toDouble(),
+          progressLabel: done || need == 1 ? null : '${_grouped(count)} / ${_grouped(need)}',
+        );
+      }(),
   ];
 }
+
+String _grouped(int n) => n >= 1000 ? '${n ~/ 1000},${(n % 1000).toString().padLeft(3, '0')}' : '$n';

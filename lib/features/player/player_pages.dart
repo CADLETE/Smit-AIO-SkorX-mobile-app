@@ -8,15 +8,18 @@ import '../../design/design.dart';
 import '../../shared/ui/components.dart' show reduceMotion;
 import '../../sports/core/score_state.dart';
 import '../casual_match/scoring_controller.dart';
+import '../community/community_controller.dart' show communityBadgeProvider;
 import '../shell/workspace_shell.dart';
 
 /// Player tabs, in branch order: one question each (docs/PLAYER-APP.md).
-const playerDestinations = [
-  ShellDestination('Home', Icons.home_outlined, Icons.home_rounded),
-  ShellDestination('Matches', Icons.scoreboard_outlined, Icons.scoreboard_rounded),
-  ShellDestination('Explore', Icons.explore_outlined, Icons.explore_rounded),
-  ShellDestination('My Paddle', Icons.sports_tennis_outlined, Icons.sports_tennis_rounded),
-  ShellDestination('Account', Icons.person_outline_rounded, Icons.person_rounded),
+final playerDestinations = [
+  const ShellDestination('Home', Icons.home_outlined, Icons.home_rounded),
+  const ShellDestination('Matches', Icons.scoreboard_outlined, Icons.scoreboard_rounded),
+  // Explore holds Tournaments, Scores, Courts, Community, Looking For…; its
+  // badge counts Community requests and unread messages.
+  ShellDestination('Explore', Icons.explore_outlined, Icons.explore_rounded, badge: communityBadgeProvider),
+  const ShellDestination('My Paddle', Icons.sports_tennis_outlined, Icons.sports_tennis_rounded),
+  const ShellDestination('Account', Icons.person_outline_rounded, Icons.person_rounded),
 ];
 
 /// Bottom padding for a player tab's scroll view: clears the tab bar and,

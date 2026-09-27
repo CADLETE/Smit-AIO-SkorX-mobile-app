@@ -74,7 +74,7 @@ Each workspace is its own navigation shell. Switching replaces the whole shell; 
 
 | Workspace | Bottom navigation | Accent |
 |---|---|---|
-| Player | Home · Matches · Explore · My Paddle · Profile (see PLAYER-APP.md) | Ink / volt (SkorX player design system) |
+| Player | Home · Matches · Explore · My Paddle · Account (see PLAYER-APP.md; Community is a module inside Explore, docs/COMMUNITY.md) | Ink / volt (SkorX player design system) |
 | Organizer | Dashboard · Tournaments · Matches · Schedule · More | Lime / blue |
 | Referee | Current · Upcoming · Completed · Profile | Lime / blue |
 
@@ -92,7 +92,7 @@ A sport is data plus an engine. It is never an `if (sport == pickleball)` branch
 - **Client**: a `SportEngine` per sport providing default rules, categories, terminology ("game" or "set"), rule validation, and a `ScoringEngine` that turns a rally result into score and serve changes.
 - **Player data**: `PlayerProfile` holds what is shared across sports; `SportPlayerProfile` holds skill, rating and stats per sport. Stats and history are always filtered by sport.
 
-Today pickleball is enabled. Badminton (21, cap 30, rally) and table tennis (11, best of 5, rally) are seeded and use the existing points engine; enabling one is a data change plus its client engine and assets. Padel is seeded but disabled until a games-and-sets engine exists.
+Today pickleball is enabled. Badminton (21, cap 30, rally) and table tennis (11, best of 3, rally) are seeded and use the existing points engine; enabling one is a data change plus its client engine and assets. Padel is seeded but disabled until a games-and-sets engine exists.
 
 Adding a sport:
 
@@ -115,6 +115,8 @@ Still to model: the match state machine (section 8), gender and date of birth on
 **Before the first migration**: no migration has been generated yet. Run `npx prisma migrate dev --name init` against a dev database, then `npm run prisma:reference` to insert the sports. Run `prisma:reference` on every deploy.
 
 ## 6. Scoring and offline sync
+
+Casual matches: built 27 Sep 2026 as described in [OFFLINE-SCORING.md](OFFLINE-SCORING.md) (whole-match batch sync through `POST /casual-matches/sync`, server replay and validation, atomic per-match files on the phone). The per-event flow below is the TMS console's.
 
 Contract (built): `POST /matches/:id/score`, `/undo`, `/complete`. See `backend/API_ARCHITECTURE.md` › Scoring writes.
 

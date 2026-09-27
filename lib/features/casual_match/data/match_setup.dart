@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/api_client.dart';
+import '../../../core/api/api_exception.dart';
+import '../../../core/sync/connectivity.dart';
 import '../../../core/sample_persona.dart';
 import '../../../sports/core/match_rules.dart';
 import '../../auth/auth_controller.dart';
@@ -214,13 +218,105 @@ abstract class MatchPlayerDirectory {
 }
 
 final matchPlayerDirectoryProvider = Provider<MatchPlayerDirectory>((ref) {
-  if (!kDebugMode || ref.watch(samplePersonaProvider) == SamplePersona.newcomer) return const _EmptyDirectory();
+  if (useRealApi || !kDebugMode) return ApiMatchPlayerDirectory(ref.watch(apiClientProvider));
+  if (ref.watch(samplePersonaProvider) == SamplePersona.newcomer) return const _EmptyDirectory();
   return const SampleMatchPlayerDirectory();
 });
 
-final matchPlayerSearchProvider = FutureProvider.autoDispose.family<List<MatchPlayer>, String>(
-  (ref, query) => ref.watch(matchPlayerDirectoryProvider).search(query),
-);
+/// Registered SkorX players, from `GET /casual-matches/players?q`. Their id is
+/// their account id, so the match can ask each of them to confirm it. A
+/// partial number finds nobody; a whole one finds exactly that player.
+class ApiMatchPlayerDirectory implements MatchPlayerDirectory {
+  const ApiMatchPlayerDirectory(this._api);
+
+  final ApiClient _api;
+
+  @override
+  Future<List<MatchPlayer>> search(String query) async {
+    if (query.trim().length < 2) return const [];
+    final data = await _api.get<List<dynamic>>('/casual-matches/players', query: {'q': query.trim()});
+    return [
+      for (final p in data.cast<Map<String, dynamic>>())
+        MatchPlayer(
+          id: p['userId'] as String,
+          name: p['name'] as String,
+          city: p['city'] as String?,
+          gender: switch ((p['gender'] as String?)?.toLowerCase()) {
+            'male' || 'm' => Gender.male,
+            'female' || 'f' => Gender.female,
+            _ => null,
+          },
+        ),
+    ];
+  }
+}
+
+/// A search, falling back to the players saved on this phone when SkorX
+/// cannot be reached, so a match can be set up offline
+/// (docs/OFFLINE-SCORING.md §2.5). Every player found online is remembered.
+final matchPlayerSearchProvider = FutureProvider.autoDispose.family<List<MatchPlayer>, String>((ref, query) async {
+  final known = ref.read(knownPlayersProvider.notifier);
+  try {
+    final found = await ref.watch(matchPlayerDirectoryProvider).search(query);
+    unawaited(known.remember(found));
+    return found;
+  } on ApiException catch (e) {
+    if (!e.isNetwork) rethrow;
+    ref.read(connectivityProvider.notifier).reportOffline();
+    await known.ready;
+    return known.search(query);
+  }
+});
+
+// ─── Players seen before ─────────────────────────────────────────────────
+
+final knownPlayersProvider = NotifierProvider<KnownPlayersController, List<MatchPlayer>>(KnownPlayersController.new);
+
+/// Registered players this phone has seen, most recent first: found in a
+/// search or played with. What the picker can offer without internet.
+/// Guests and "me" are never kept; they need no lookup.
+class KnownPlayersController extends Notifier<List<MatchPlayer>> {
+  static const _key = 'skorx.knownPlayers';
+  static const _keep = 300;
+
+  late final Future<void> ready;
+
+  @override
+  List<MatchPlayer> build() {
+    ready = _restore();
+    return const [];
+  }
+
+  Future<void> _restore() async {
+    try {
+      final raw = await ref.read(preferencesProvider).getString(_key);
+      if (raw != null && ref.mounted) {
+        state = (jsonDecode(raw) as List<dynamic>).cast<Map<String, dynamic>>().map(MatchPlayer.fromJson).toList();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> remember(Iterable<MatchPlayer> players) async {
+    await ready;
+    final fresh = players.where((p) => !p.isMe && !p.isGuest).toList();
+    if (fresh.isEmpty || !ref.mounted) return;
+    final ids = {for (final p in fresh) p.id};
+    state = [...fresh, ...state.where((p) => !ids.contains(p.id))].take(_keep).toList();
+    await ref.read(preferencesProvider).setString(_key, jsonEncode([for (final p in state) p.toJson()]));
+  }
+
+  /// Name, id, city or X code; a whole mobile number never matches offline
+  /// because numbers are never stored.
+  List<MatchPlayer> search(String query) {
+    final code = XCode.parse(query);
+    if (code != null) return [for (final p in state) if (p.xCode == code) p];
+    final q = query.trim().toLowerCase();
+    return [
+      for (final p in state)
+        if (q.isEmpty || '${p.name} ${p.id} ${p.city ?? ''}'.toLowerCase().contains(q)) p,
+    ];
+  }
+}
 
 /// Release builds until the endpoint exists: starred players, "me" and guests only.
 class _EmptyDirectory implements MatchPlayerDirectory {

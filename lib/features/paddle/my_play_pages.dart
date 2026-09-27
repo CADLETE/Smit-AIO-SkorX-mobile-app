@@ -178,7 +178,7 @@ class NoTournamentsYet extends StatelessWidget {
         action: SxButton.secondary(
           label: 'Find a tournament',
           expand: false,
-          onPressed: () => context.go('/player/explore?view=tournaments'),
+          onPressed: () => context.go('/player/explore/tournaments'),
         ),
       );
 }
@@ -447,7 +447,7 @@ class MyMatchesEmpty extends StatelessWidget {
           action: SxButton.secondary(
             label: 'Find a tournament',
             expand: false,
-            onPressed: () => context.go('/player/explore?view=tournaments'),
+            onPressed: () => context.go('/player/explore/tournaments'),
           ),
         );
 }

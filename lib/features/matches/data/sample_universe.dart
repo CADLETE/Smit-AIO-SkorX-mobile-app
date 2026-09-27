@@ -14,7 +14,7 @@ final sampleUniverseProvider = Provider<SampleUniverse>(
 );
 
 /// A player as the sample data knows them.
-typedef SamplePlayer = ({String id, String name, String city, String level, int? points});
+typedef SamplePlayer = ({String id, String name, String city, String level, double? points, double? rating});
 
 /// Debug builds: every match on SkorX, not just the signed-in player's. The
 /// player's own season ([SampleSeason]) plus casual and tournament matches in
@@ -130,11 +130,22 @@ class SampleUniverse {
 
   /// The sample data's older 1000–1700 ratings as career SkorX Points, so
   /// every player sits on the same scale as the ARC engine's SXP.
-  static int sxpFromLegacy(int rating) => ((rating - 1000) * 1.5).round().clamp(0, 2000);
+  static double sxpFromLegacy(int rating) => ((rating - 1000) * 30 + rating % 20).clamp(0, 40000) / 20;
+
+  /// The same legacy rating as a SkorX Rating (0–100): 1150 is 40
+  /// (Intermediate), 1300 is 55 (Advanced), 1450 is 70 (Pro).
+  static double ratingFromLegacy(int rating) => ((25 + (rating - 1000) / 10).clamp(5, 95) * 10).round() / 10;
 
   void _addPlayer(String id, String name, String city, String level, int? points) {
     if (_byName.containsKey(name)) return;
-    final p = (id: id, name: name, city: city, level: level, points: points == null ? null : sxpFromLegacy(points));
+    final p = (
+      id: id,
+      name: name,
+      city: city,
+      level: level,
+      points: points == null ? null : sxpFromLegacy(points),
+      rating: points == null ? null : ratingFromLegacy(points),
+    );
     _byName[name] = p;
     _byId[id] = p;
   }

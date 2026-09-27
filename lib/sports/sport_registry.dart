@@ -34,7 +34,7 @@ const pickleball = SportDefinition(
   categories: racketCategories,
   scoringSystems: [ScoringSystem.sideOut, ScoringSystem.rally],
   pointTargets: [11, 15, 21],
-  bestOfOptions: [1, 3, 5],
+  bestOfOptions: playableBestOf,
 );
 
 const badminton = SportDefinition(
@@ -45,16 +45,16 @@ const badminton = SportDefinition(
   categories: racketCategories,
   scoringSystems: [ScoringSystem.rally],
   pointTargets: [11, 15, 21],
-  bestOfOptions: [1, 3],
+  bestOfOptions: playableBestOf,
 );
 
 const tableTennis = SportDefinition(
   id: 'table_tennis',
   name: 'Table Tennis',
   engine: TableTennisScoringEngine(),
-  defaultRules: MatchRules(pointsToWin: 11, winByTwo: true, bestOf: 5),
+  defaultRules: MatchRules(pointsToWin: 11, winByTwo: true, bestOf: 3),
   categories: racketCategories,
   scoringSystems: [ScoringSystem.rally],
   pointTargets: [11, 21],
-  bestOfOptions: [3, 5, 7],
+  bestOfOptions: playableBestOf,
 );

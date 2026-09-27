@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 import 'package:go_router/go_router.dart';
 
 import '../../app/theme/tokens.dart';
@@ -12,13 +13,17 @@ import '../../design/type.dart';
 import '../../shared/widgets.dart';
 import '../auth/auth_controller.dart';
 import '../workspace/workspace_switcher.dart';
+import '../onboarding/app_tour.dart';
 
 class ShellDestination {
-  const ShellDestination(this.label, this.icon, this.selectedIcon);
+  const ShellDestination(this.label, this.icon, this.selectedIcon, {this.badge});
 
   final String label;
   final IconData icon;
   final IconData selectedIcon;
+
+  /// A count shown on the tab (requests, unread messages); nothing at zero.
+  final ProviderListenable<int>? badge;
 }
 
 /// Room at the bottom of scrolling pages so content clears the bottom bar.
@@ -42,6 +47,7 @@ class WorkspaceShell extends ConsumerWidget {
     required this.onSelect,
     this.fullBleedTabs = const {},
     this.overlay,
+    this.tour = false,
     this.action,
   });
 
@@ -51,6 +57,7 @@ class WorkspaceShell extends ConsumerWidget {
     required List<ShellDestination> destinations,
     Set<int> fullBleedTabs = const {},
     Widget? overlay,
+    bool tour = false,
   }) =>
       WorkspaceShell(
         destinations: destinations,
@@ -58,6 +65,7 @@ class WorkspaceShell extends ConsumerWidget {
         onSelect: (index) => navigationShell.goBranch(index, initialLocation: index == navigationShell.currentIndex),
         fullBleedTabs: fullBleedTabs,
         overlay: overlay,
+        tour: tour,
         child: navigationShell,
       );
 
@@ -73,6 +81,9 @@ class WorkspaceShell extends ConsumerWidget {
   /// Floats just above the bottom bar on every tab, e.g. the player's
   /// resume-match bar. Sizes itself to nothing when it has nothing to show.
   final Widget? overlay;
+
+  /// Whether this shell hosts the first-run app tour (the Player shell).
+  final bool tour;
 
   /// Top right of the bar, e.g. the organiser's tournament actions.
   final Widget? action;
@@ -114,7 +125,7 @@ class WorkspaceShell extends ConsumerWidget {
       );
     }
 
-    return Scaffold(
+    final scaffold = Scaffold(
       // Content scrolls underneath the frosted bottom bar.
       extendBody: true,
       appBar: fullBleed
@@ -137,10 +148,17 @@ class WorkspaceShell extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           ?overlay,
-          SkorxNavBar(destinations: destinations, currentIndex: currentIndex, onSelect: onSelect),
+          SkorxNavBar(
+            destinations: destinations,
+            currentIndex: currentIndex,
+            onSelect: onSelect,
+            tabKeys: tour ? appTourTabKeys : null,
+          ),
         ],
       ),
     );
+    if (!tour) return scaffold;
+    return Stack(children: [scaffold, Positioned.fill(child: AppTourLayer(onSelectTab: onSelect))]);
   }
 }
 
@@ -153,7 +171,11 @@ class SkorxNavBar extends StatelessWidget {
     required this.currentIndex,
     required this.onSelect,
     this.centerAction,
+    this.tabKeys,
   });
+
+  /// Keys on each tab, so the app tour can find them on screen.
+  final List<GlobalKey>? tabKeys;
 
   final List<ShellDestination> destinations;
   final int currentIndex;
@@ -171,6 +193,7 @@ class SkorxNavBar extends StatelessWidget {
 
     Widget tab(int index) => Expanded(
           child: _NavTab(
+            key: tabKeys != null && index < tabKeys!.length ? tabKeys![index] : null,
             destination: destinations[index],
             selected: index == currentIndex,
             onTap: () => onSelect(index),
@@ -237,21 +260,22 @@ class SkorxNavBar extends StatelessWidget {
   }
 }
 
-class _NavTab extends StatelessWidget {
-  const _NavTab({required this.destination, required this.selected, required this.onTap});
+class _NavTab extends ConsumerWidget {
+  const _NavTab({super.key, required this.destination, required this.selected, required this.onTap});
 
   final ShellDestination destination;
   final bool selected;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final c = context.sx;
     final motion = !sxReduceMotion(context);
+    final badge = destination.badge == null ? 0 : ref.watch(destination.badge!);
     return Semantics(
       button: true,
       selected: selected,
-      label: destination.label,
+      label: badge > 0 ? '${destination.label}, $badge new' : destination.label,
       excludeSemantics: true,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -262,26 +286,52 @@ class _NavTab extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            AnimatedScale(
-              duration: const Duration(milliseconds: 500),
-              curve: Curves.elasticOut,
-              scale: selected && motion ? 1.08 : 1,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 280),
-                curve: Curves.easeOutCubic,
-                width: selected ? 50 : 40,
-                height: 30,
-                decoration: BoxDecoration(
-                  gradient: selected ? c.brand : null,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: selected ? c.glowOf(c.voltFill, strength: 0.7) : null,
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                AnimatedScale(
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.elasticOut,
+                  scale: selected && motion ? 1.08 : 1,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 280),
+                    curve: Curves.easeOutCubic,
+                    width: selected ? 50 : 40,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      gradient: selected ? c.brand : null,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: selected ? c.glowOf(c.voltFill, strength: 0.7) : null,
+                    ),
+                    child: Icon(
+                      selected ? destination.selectedIcon : destination.icon,
+                      color: selected ? c.onVolt : c.inkMuted,
+                      size: 20,
+                    ),
+                  ),
                 ),
-                child: Icon(
-                  selected ? destination.selectedIcon : destination.icon,
-                  color: selected ? c.onVolt : c.inkMuted,
-                  size: 20,
-                ),
-              ),
+                if (badge > 0)
+                  Positioned(
+                    top: -5,
+                    right: -7,
+                    child: Container(
+                      key: Key('navBadge-${destination.label}'),
+                      constraints: const BoxConstraints(minWidth: 18),
+                      height: 18,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        gradient: c.heat,
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(color: c.surface, width: 1.5),
+                      ),
+                      child: Text(
+                        badge > 9 ? '9+' : '$badge',
+                        style: const TextStyle(fontFamily: SxType.sans, fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 4),
             Text(
